@@ -1,0 +1,36 @@
+Blackdrift: limit the AAB to the ABIs Blackdrift actually builds Gecko for.
+
+Why: Blackdrift's artifact build installs GeckoView native code (libxul.so,
+libmozglue.so) for one ABI only, the mozconfig --target (today arm64-v8a).
+APK builds are protected by upstream's ABI splits, and the harness stages only
+the arm64-v8a split. A bundle task turns those splits off, so the AAB would
+also package the armeabi-v7a/x86_64 native libraries that other dependencies
+ship (application-services, AndroidX) without any Gecko engine, and Google
+Play would serve that broken split to 32-bit ARM and x86_64 devices.
+
+When blackdrift/scripts/build.sh passes -PblackdriftAbiFilters (comma-separated, e.g.
+arm64-v8a) to a bundle invocation, defaultConfig.ndk.abiFilters keeps only
+those ABIs in the AAB. It is applied only when the invocation builds a bundle
+(upstream's isAppBundle), because ndk.abiFilters may not be combined with
+enabled ABI splits. Without the property nothing changes.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/build.gradle b/app/build.gradle
+index 3f53a40..833829d 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -48,6 +48,13 @@ android {
+         }
+ 
+         vectorDrawables.useSupportLibrary = true
++
++        // Blackdrift: an AAB carries only the ABIs that have GeckoView (see the patch header).
++        if (isAppBundle && project.hasProperty("blackdriftAbiFilters")) {
++            ndk {
++                abiFilters.addAll(project.property("blackdriftAbiFilters").toString().split(",") as List)
++            }
++        }
+     }
+ 
+     bundle {

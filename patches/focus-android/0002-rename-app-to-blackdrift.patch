@@ -1,0 +1,49 @@
+Blackdrift: show the app as "Blackdrift" instead of "Firefox Focus".
+
+Why: the launcher label and in-app product name must identify this build as
+Blackdrift so users can tell it apart from Mozilla Firefox Focus. app_name is a
+non-translatable string defined once for the focus flavor (main/res/values),
+with focusBeta/focusNightly overrides, so every locale picks up the change
+without touching translations. The short onboarding name follows suit. The
+user agent is not touched (upstream removed the useragent_appname token after
+Firefox 150; Gecko's default mobile UA is used). Klar keeps its own name.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/focusBeta/res/values/app.xml b/app/src/focusBeta/res/values/app.xml
+index f57980c..1e3301f 100644
+--- a/app/src/focusBeta/res/values/app.xml
++++ b/app/src/focusBeta/res/values/app.xml
+@@ -3,5 +3,5 @@
+    - License, v. 2.0. If a copy of the MPL was not distributed with this
+    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+ <resources>
+-    <string name="app_name" translatable="false">Firefox Focus Beta</string>
++    <string name="app_name" translatable="false">Blackdrift Beta</string>
+ </resources>
+diff --git a/app/src/focusNightly/res/values/app.xml b/app/src/focusNightly/res/values/app.xml
+index ed5943e..d2033cf 100644
+--- a/app/src/focusNightly/res/values/app.xml
++++ b/app/src/focusNightly/res/values/app.xml
+@@ -4,5 +4,5 @@
+    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+ 
+ <resources>
+-    <string name="app_name" translatable="false">Firefox Focus Nightly</string>
++    <string name="app_name" translatable="false">Blackdrift Nightly</string>
+ </resources>
+diff --git a/app/src/main/res/values/app.xml b/app/src/main/res/values/app.xml
+index 69ebc34..4531df6 100644
+--- a/app/src/main/res/values/app.xml
++++ b/app/src/main/res/values/app.xml
+@@ -3,8 +3,8 @@
+    - License, v. 2.0. If a copy of the MPL was not distributed with this
+    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+ <resources>
+-    <string name="app_name" translatable="false">Firefox Focus</string>
++    <string name="app_name" translatable="false">Blackdrift</string>
+ 
+     <!-- This String is the short version of app name -->
+-    <string name="onboarding_short_app_name" translatable="false">Focus</string>
++    <string name="onboarding_short_app_name" translatable="false">Blackdrift</string>
+ </resources>

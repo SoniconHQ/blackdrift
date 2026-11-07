@@ -1,0 +1,39 @@
+Blackdrift: take versionName/versionCode from the release workflow.
+
+Why: Google Play needs every upload's versionCode to increase and the monorepo
+release pipeline (play-store-release.yml) refuses an upload whose APK
+versionCode differs from the release tag's "+code". Upstream gives release
+builds a time-based code (byDDDHHmm, 2026 -> 40DDDHHmm), adds an ABI offset
+(+2 arm64-v8a) or +1 for an AAB, and uses the Gecko version (e.g. 159.0.1)
+as versionName, so a Blackdrift build never carried its own version.
+
+When blackdrift/scripts/build.sh passes -PblackdriftVersionCode / -PblackdriftVersionName (from
+BLACKDRIFT_VERSION_CODE / BLACKDRIFT_VERSION_NAME), every output of the release, beta and
+nightly build types gets exactly those values: the APK and the AAB of one
+release share the tag's code, with no ABI offset (Play derives per-ABI APKs
+from the AAB itself). Without the properties nothing changes, so the upstream
+baseline is intact. The names are Blackdrift-specific because Mozilla's root
+build.gradle overwrites the versionName/versionCode extra properties of every
+project, which would shadow a plain -PversionName/-PversionCode.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/build.gradle b/app/build.gradle
+index 74799e4..3f53a40 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -431,6 +431,14 @@ androidComponents {
+                 } else {
+                     throw new RuntimeException("Unknown ABI: " + abi)
+                 }
++                // Blackdrift: the release tag's version replaces the time-based code, the ABI/AAB
++                // offset and the Gecko versionName (see the patch header).
++                if (project.hasProperty("blackdriftVersionCode")) {
++                    versionCodeOverride = Integer.parseInt(project.property("blackdriftVersionCode").toString())
++                }
++                if (project.hasProperty("blackdriftVersionName")) {
++                    versionName = project.property("blackdriftVersionName").toString()
++                }
+                 project.logger.debug("versionCode for $abi = $versionCodeOverride")
+ 
+                 output.versionName.set(versionName)

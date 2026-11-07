@@ -1,0 +1,363 @@
+Blackdrift: map Focus's colour resources to the Clean Slate tokens.
+
+Why: Focus's palette (Photon violets, the pink accent, purple gradients) is
+Firefox Focus's look, and Blackdrift should read as its own product. The 53 light / 51 dark colours
+listed in blackdrift/branding/android/focus-colors are rewritten in place in Focus's
+own values/colors.xml and values-night/colors.xml, so every resource name
+keeps a single definition; a second file defining the same names would break
+resource merging. Values are literal hex (main/res cannot see the focus
+flavor's blackdrift_* tokens, and klar shares main). Accents become Drift blue,
+Erase and error states Thaw red, and the home, header and onboarding
+(home_screen_modal_gradient_*) gradients go flat to the ground colour. The
+home screen's home_background drawables carry literal gradient stops, so
+patch 0209 replaces them, and the Compose palette in ui/theme/FocusTheme.kt
+is patch 0210 (hand-written, so this generated patch stays regenerable).
+Colours not listed keep their upstream values;
+recheck the list when FIREFOX_REV moves (the move to 159.0.1 dropped 18
+names that upstream deleted as unused, from 67 to 49, then added the
+first-run tip bubble cfr_pop_up_shape_* (light file only) and the white-text
+biometric and Add-widget buttons, all Drift blue #2F6FD6). Regenerate with
+blackdrift/branding/scripts/apply-focus-colors.mjs.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/main/res/values-night/colors.xml b/app/src/main/res/values-night/colors.xml
+index 16f311ac..3404ccaa 100644
+--- a/app/src/main/res/values-night/colors.xml
++++ b/app/src/main/res/values-night/colors.xml
+@@ -3,110 +3,110 @@
+    - License, v. 2.0. If a copy of the MPL was not distributed with this
+    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+ <resources xmlns:tools="http://schemas.android.com/tools">
+-    <color name="colorPrimary">@color/photonInk60</color>
+-    <color name="colorSecondary">@color/photonInk05</color>
+-    <color name="primaryText">@color/photonLightGrey05</color>
+-    <color name="secondaryText">@color/photonLightGrey50</color>
++    <color name="colorPrimary">#0B1530</color>
++    <color name="colorSecondary">#14213F</color>
++    <color name="primaryText">#E8EEF6</color>
++    <color name="secondaryText">#9AAAC6</color>
+ 
+-    <color name="contrastColor">@color/photonWhite</color>
++    <color name="contrastColor">#E8EEF6</color>
+ 
+-    <color name="error">@color/photonRed30</color>
++    <color name="error">#FF5C77</color>
+ 
+-    <color name="focusContrastPink">#e452B9</color>
++    <color name="focusContrastPink">#7AA8F5</color>
+ 
+     <color name="disabled">#66FBFBFE</color>
+-    <color name="splash_screen_background">@color/photonInk60</color>
++    <color name="splash_screen_background">#0B1530</color>
+ 
+-    <color name="urlBarHintText">@color/photonLightGrey50</color>
++    <color name="urlBarHintText">#9AAAC6</color>
+ 
+     <color name="colorOverlay">#cc000000</color>
+ 
+-    <color name="toolbarUrlBackground">@color/photonInk05</color>
++    <color name="toolbarUrlBackground">#14213F</color>
+ 
+-    <color name="divider">@color/photonInk10</color>
+-    <color name="accentBright">@color/photonPink40</color>
+-    <color name="destructive">#FF6A75</color>
++    <color name="divider">#253758</color>
++    <color name="accentBright">#7AA8F5</color>
++    <color name="destructive">#FF5C77</color>
+ 
+     <!-- Logo and Splash -->
+-    <color name="headerGradientStart">#FF1E1236</color>
+-    <color name="headerGradientMiddle">#FF21163E</color>
+-    <color name="headerGradientEnd">#FF1D1133</color>
++    <color name="headerGradientStart">#0B1530</color>
++    <color name="headerGradientMiddle">#0B1530</color>
++    <color name="headerGradientEnd">#0B1530</color>
+ 
+     <!-- Progress Bar -->
+-    <color name="colorProgressGradientStart">#FFFF1AD9</color>
+-    <color name="colorProgressGradientEnd">#FFFF1AD9</color>
++    <color name="colorProgressGradientStart">#7AA8F5</color>
++    <color name="colorProgressGradientEnd">#7AA8F5</color>
+ 
+-    <color name="colorErase">@color/photonMagenta70</color>
++    <color name="colorErase">#FF5C77</color>
+ 
+-    <color name="colorCrashAccent">@color/photonBlue40</color>
++    <color name="colorCrashAccent">#7AA8F5</color>
+ 
+     <!-- Toolbar -->
+ 
+     <color name="images_removal_warning_background_color">#353852</color>
+-    <color name="menuBackground">@color/colorSecondary</color>
++    <color name="menuBackground">#14213F</color>
+ 
+     <!-- Snackbar-->
+-    <color name="snackbarBackground">@color/colorSecondary</color>
+-    <color name="snackbarTextColor">@color/primaryText</color>
+-    <color name="snackbarActionText">@color/accentBright</color>
++    <color name="snackbarBackground">#E8EEF6</color>
++    <color name="snackbarTextColor">#0B1530</color>
++    <color name="snackbarActionText">#1F56B8</color>
+ 
+     <!-- Search Suggestions -->
+-    <color name="searchSuggestionPromptBackground">@color/photonInk80</color>
+-    <color name="searchSuggestionPromptTitleColor">@color/photonLightGrey05</color>
+-    <color name="searchSuggestionPromptSubtitleColor">@color/photonLightGrey05</color>
+-    <color name="searchSuggestionPromptBorderColor">@color/colorSecondary</color>
+-    <color name="searchSuggestionPromptButtonTextColor">@color/accentBright</color>
++    <color name="searchSuggestionPromptBackground">#14213F</color>
++    <color name="searchSuggestionPromptTitleColor">#E8EEF6</color>
++    <color name="searchSuggestionPromptSubtitleColor">#9AAAC6</color>
++    <color name="searchSuggestionPromptBorderColor">#253758</color>
++    <color name="searchSuggestionPromptButtonTextColor">#7AA8F5</color>
+ 
+-    <color name="autocompleteBackgroundColor">#ffb5007f</color>
++    <color name="autocompleteBackgroundColor">#253758</color>
+ 
+     <!-- Onboarding -->
+-    <color name="onboardingButtonOneColor">#7542E5</color>
+-    <color name="onboardingButtonTwoColor">#E0E0E6</color>
++    <color name="onboardingButtonOneColor">#7AA8F5</color>
++    <color name="onboardingButtonTwoColor">#14213F</color>
+ 
+     <!-- Session -->
+-    <color name="colorSession">@color/photonInk05</color>
+-    <color name="colorActiveSession">@color/photonInk60</color>
++    <color name="colorSession">#14213F</color>
++    <color name="colorActiveSession">#1E3156</color>
+ 
+     <!-- Launcher Icon Background-->
+-    <color name="add_to_homescreen_icon_background">@color/photonInk60</color>
++    <color name="add_to_homescreen_icon_background">#14213F</color>
+ 
+-    <color name="firefoxInstallHint">@color/focusContrastPink</color>
++    <color name="firefoxInstallHint">#7AA8F5</color>
+ 
+     <color name="scrollbarThumb">#b2b2b2b2</color>
+ 
+     <!-- Preferences -->
+-    <color name="preference_summary_text">@color/secondaryText</color>
+-    <color name="settings_background">@color/photonInk05</color>
+-    <color name="preference_learn_more_link">@color/accentBright</color>
+-    <color name="selected_search_engine">@color/accentBright</color>
++    <color name="preference_summary_text">#9AAAC6</color>
++    <color name="settings_background">#0B1530</color>
++    <color name="preference_learn_more_link">#7AA8F5</color>
++    <color name="selected_search_engine">#7AA8F5</color>
+ 
+     <color name="colorSettingsTint">@color/photonGrey10</color>
+-    <color name="colorAccentSettings">@color/accentBright</color>
++    <color name="colorAccentSettings">#7AA8F5</color>
+ 
+     <color name="preference_row_disabled">#B3313131</color>
+ 
+     <color name="enabled_button_tint">@color/photonWhite</color>
+ 
+     <!--Modals colors -->
+-    <color name="modal_background">@color/colorSecondary</color>
++    <color name="modal_background">#14213F</color>
+ 
+     <!-- Override AC colors. Those only referenced from android-components are marked so that the
+          UnusedResources check, which cannot see those references, does not report them as unused. -->
+-    <color name="mozac_ui_icons_fill">@color/primaryText</color>
++    <color name="mozac_ui_icons_fill">#E8EEF6</color>
+     <color name="mozac_additional_note_background" tools:ignore="UnusedResources">@color/colorPrimary</color>
+     <color name="mozac_additional_note_text_color" tools:ignore="UnusedResources">@color/secondaryText</color>
+ 
+     <!-- Biometric screen colors -->
+-    <color name="biometric_show_button_background">#7542E5</color>
+-    <color name="home_screen_modal_gradient_one">#1E1236</color>
+-    <color name="home_screen_modal_gradient_two">#332866</color>
+-    <color name="home_screen_modal_gradient_three">#4D3A83</color>
+-    <color name="home_screen_modal_gradient_four">#3C286A</color>
+-    <color name="home_screen_modal_gradient_five">#21163E</color>
+-    <color name="home_screen_modal_gradient_six">#1D1133</color>
++    <color name="biometric_show_button_background">#2F6FD6</color>
++    <color name="home_screen_modal_gradient_one">#0B1530</color>
++    <color name="home_screen_modal_gradient_two">#0B1530</color>
++    <color name="home_screen_modal_gradient_three">#0B1530</color>
++    <color name="home_screen_modal_gradient_four">#0B1530</color>
++    <color name="home_screen_modal_gradient_five">#0B1530</color>
++    <color name="home_screen_modal_gradient_six">#0B1530</color>
+ 
+     <!-- Promote SearchWidget Dialog colors -->
+     <color name="promote_search_widget_dialog_background">#2B2A33</color>
+     <color name="promote_search_widget_dialog_close_button_background">#3B3C3F</color>
+-    <color name="promote_search_widget_dialog_add_widget_button_background">#7542E5</color>
++    <color name="promote_search_widget_dialog_add_widget_button_background">#2F6FD6</color>
+ </resources>
+diff --git a/app/src/main/res/values/colors.xml b/app/src/main/res/values/colors.xml
+index 88f3dc3c..0e106d85 100644
+--- a/app/src/main/res/values/colors.xml
++++ b/app/src/main/res/values/colors.xml
+@@ -2,116 +2,116 @@
+    - License, v. 2.0. If a copy of the MPL was not distributed with this
+    - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+ <resources xmlns:tools="http://schemas.android.com/tools">
+-    <color name="colorPrimary">@color/photonViolet05</color>
+-    <color name="colorSecondary">@color/photonLightGrey05</color>
+-    <color name="primaryText">@color/photonInk50</color>
+-    <color name="secondaryText">@color/photonDarkGrey05</color>
++    <color name="colorPrimary">#F5F8FB</color>
++    <color name="colorSecondary">#FFFFFF</color>
++    <color name="primaryText">#0E1B3D</color>
++    <color name="secondaryText">#4A5878</color>
+ 
+-    <color name="contrastColor">@color/photonBlack</color>
++    <color name="contrastColor">#0E1B3D</color>
+ 
+-    <color name="error">@color/photonRed70</color>
+-    <color name="focusContrastPink">#e452B9</color>
++    <color name="error">#D92648</color>
++    <color name="focusContrastPink">#2F6FD6</color>
+ 
+     <color name="disabled">#66312A65</color>
+-    <color name="splash_screen_background">@color/photonViolet05</color>
++    <color name="splash_screen_background">#F5F8FB</color>
+ 
+-    <color name="urlBarHintText">@color/photonDarkGrey05</color>
++    <color name="urlBarHintText">#4A5878</color>
+ 
+     <color name="colorOverlay">#cc000000</color>
+ 
+-    <color name="toolbarUrlBackground">@color/photonLightGrey05</color>
++    <color name="toolbarUrlBackground">#FFFFFF</color>
+ 
+-    <color name="divider">@color/photonLightGrey30</color>
+-    <color name="accentBright">@color/photonPink70</color>
+-    <color name="destructive">#FF6A75</color>
++    <color name="divider">#CFE0F0</color>
++    <color name="accentBright">#2F6FD6</color>
++    <color name="destructive">#D92648</color>
+ 
+     <!-- Logo and Splash -->
+-    <color name="headerGradientStart">#D4D5FA</color>
+-    <color name="headerGradientMiddle">#D3D5FB</color>
+-    <color name="headerGradientEnd">#D5D7FA</color>
++    <color name="headerGradientStart">#F5F8FB</color>
++    <color name="headerGradientMiddle">#F5F8FB</color>
++    <color name="headerGradientEnd">#F5F8FB</color>
+ 
+     <!-- Progress Bar -->
+-    <color name="colorProgressGradientStart">#FFFF1AD9</color>
+-    <color name="colorProgressGradientEnd">#FFFF1AD9</color>
++    <color name="colorProgressGradientStart">#2F6FD6</color>
++    <color name="colorProgressGradientEnd">#2F6FD6</color>
+ 
+-    <color name="colorErase">@color/photonMagenta70</color>
++    <color name="colorErase">#D92648</color>
+ 
+-    <color name="colorCrashAccent">@color/photonBlue40</color>
++    <color name="colorCrashAccent">#2F6FD6</color>
+ 
+     <!-- Toolbar -->
+ 
+     <color name="images_removal_warning_background_color">#353852</color>
+-    <color name="menuBackground">@color/colorSecondary</color>
++    <color name="menuBackground">#FFFFFF</color>
+ 
+     <!-- Snackbar-->
+-    <color name="snackbarBackground">@color/colorSecondary</color>
+-    <color name="snackbarTextColor">@color/primaryText</color>
+-    <color name="snackbarActionText">@color/accentBright</color>
++    <color name="snackbarBackground">#0E1B3D</color>
++    <color name="snackbarTextColor">#F5F8FB</color>
++    <color name="snackbarActionText">#7AA8F5</color>
+ 
+     <!-- Search Suggestions -->
+-    <color name="searchSuggestionPromptBackground">@color/photonViolet05</color>
+-    <color name="searchSuggestionPromptTitleColor">@color/photonInk80</color>
+-    <color name="searchSuggestionPromptSubtitleColor">@color/photonInk80</color>
+-    <color name="searchSuggestionPromptBorderColor">@color/colorSecondary</color>
+-    <color name="searchSuggestionPromptButtonTextColor">@color/accentBright</color>
++    <color name="searchSuggestionPromptBackground">#FFFFFF</color>
++    <color name="searchSuggestionPromptTitleColor">#0E1B3D</color>
++    <color name="searchSuggestionPromptSubtitleColor">#4A5878</color>
++    <color name="searchSuggestionPromptBorderColor">#CFE0F0</color>
++    <color name="searchSuggestionPromptButtonTextColor">#2F6FD6</color>
+ 
+-    <color name="autocompleteBackgroundColor">#ffbaa8e6</color>
++    <color name="autocompleteBackgroundColor">#CFE0F0</color>
+ 
+     <!-- Onboarding -->
+-    <color name="onboardingButtonOneColor">#312A64</color>
+-    <color name="onboardingButtonTwoColor">#E0E0E6</color>
++    <color name="onboardingButtonOneColor">#0E1B3D</color>
++    <color name="onboardingButtonTwoColor">#FFFFFF</color>
+ 
+     <!-- Session -->
+-    <color name="colorSession">@color/photonLightGrey05</color>
+-    <color name="colorActiveSession">@color/photonViolet05</color>
++    <color name="colorSession">#FFFFFF</color>
++    <color name="colorActiveSession">#E3EDF8</color>
+ 
+     <!-- Launcher Icon Background-->
+-    <color name="add_to_homescreen_icon_background">@color/photonInk60</color>
++    <color name="add_to_homescreen_icon_background">#0E1B3D</color>
+ 
+-    <color name="firefoxInstallHint">@color/focusContrastPink</color>
++    <color name="firefoxInstallHint">#2F6FD6</color>
+ 
+     <color name="scrollbarThumb">#b2b2b2b2</color>
+ 
+     <!-- Preferences -->
+-    <color name="preference_summary_text">@color/secondaryText</color>
+-    <color name="settings_background">@color/photonLightGrey05</color>
+-    <color name="preference_learn_more_link">@color/accentBright</color>
+-    <color name="selected_search_engine">@color/accentBright</color>
++    <color name="preference_summary_text">#4A5878</color>
++    <color name="settings_background">#F5F8FB</color>
++    <color name="preference_learn_more_link">#2F6FD6</color>
++    <color name="selected_search_engine">#2F6FD6</color>
+ 
+     <color name="colorSettingsTint">@color/photonGrey10</color>
+-    <color name="colorAccentSettings">@color/accentBright</color>
++    <color name="colorAccentSettings">#2F6FD6</color>
+ 
+     <color name="preference_row_disabled">#B3313131</color>
+ 
+     <color name="enabled_button_tint">@color/photonBlack</color>
+ 
+     <!--Modals colors -->
+-    <color name="modal_background">@color/colorSecondary</color>
++    <color name="modal_background">#FFFFFF</color>
+ 
+     <!-- Override AC colors. Those only referenced from android-components are marked so that the
+          UnusedResources check, which cannot see those references, does not report them as unused. -->
+-    <color name="mozac_ui_icons_fill">@color/primaryText</color>
++    <color name="mozac_ui_icons_fill">#0E1B3D</color>
+     <color name="mozac_additional_note_background" tools:ignore="UnusedResources">@color/colorPrimary</color>
+     <color name="mozac_additional_note_text_color" tools:ignore="UnusedResources">@color/secondaryText</color>
+ 
+     <!-- CFR colors -->
+     <color name="cfr_text_color">#FBFBFE</color>
+-    <color name="cfr_pop_up_shape_end_color">#AB71FF</color>
+-    <color name="cfr_pop_up_shape_start_color">#592ACB</color>
++    <color name="cfr_pop_up_shape_end_color">#2F6FD6</color>
++    <color name="cfr_pop_up_shape_start_color">#2F6FD6</color>
+ 
+     <!-- Biometric screen colors -->
+-    <color name="biometric_show_button_background">#312A64</color>
++    <color name="biometric_show_button_background">#2F6FD6</color>
+ 
+     <!-- HomeScreen background colors -->
+-    <color name="home_screen_modal_gradient_one">#D3D4FA</color>
+-    <color name="home_screen_modal_gradient_two">#D7D6F9</color>
+-    <color name="home_screen_modal_gradient_three">#ECEAFA</color>
+-    <color name="home_screen_modal_gradient_four">#F0EFFA</color>
+-    <color name="home_screen_modal_gradient_five">#D9D3F5</color>
+-    <color name="home_screen_modal_gradient_six">#D6C9EB</color>
++    <color name="home_screen_modal_gradient_one">#F5F8FB</color>
++    <color name="home_screen_modal_gradient_two">#F5F8FB</color>
++    <color name="home_screen_modal_gradient_three">#F5F8FB</color>
++    <color name="home_screen_modal_gradient_four">#F5F8FB</color>
++    <color name="home_screen_modal_gradient_five">#F5F8FB</color>
++    <color name="home_screen_modal_gradient_six">#F5F8FB</color>
+ 
+     <!-- Promote SearchWidget Dialog colors -->
+     <color name="promote_search_widget_dialog_background">#FFFFFF</color>
+     <color name="promote_search_widget_dialog_close_button_background">#F2F2F7</color>
+-    <color name="promote_search_widget_dialog_add_widget_button_background">#312A64</color>
++    <color name="promote_search_widget_dialog_add_widget_button_background">#2F6FD6</color>
+ </resources>

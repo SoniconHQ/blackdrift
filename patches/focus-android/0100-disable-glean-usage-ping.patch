@@ -1,0 +1,187 @@
+Blackdrift: never send Glean telemetry or the daily usage ping.
+
+Why: Blackdrift does not report anything to Mozilla. Upstream Focus already keeps
+general Glean collection off (isTelemetryEnabled() returns false), but the
+daily usage ping is on by default in focusRelease and its two pings
+(usage-reporting, usage-deletion-request) set follows_collection_enabled:
+false, so they upload even when Glean upload is disabled. This patch:
+
+- passes uploadEnabled = false to Glean.initialize directly, so a future
+  upstream change to isTelemetryEnabled() cannot turn upload back on;
+- turns both usage pings off in GleanUsageReporting.setEnabled(), whatever
+  the caller asks for, so nothing is sent even if the stored preference is
+  true;
+- makes the daily usage ping preference default to false;
+- removes the "Data Choices" category from Privacy & Security settings,
+  because a switch that can no longer send anything would mislead users;
+- drops the androidTest robot's checks of that switch
+  (SettingsPrivacyMenuRobot.verifyPrivacySettingsItems), which would fail
+  now that it is gone;
+- points the Privacy & Security summary ("Tracking, cookies, data choices")
+  at a new non-translatable blackdrift_privacy_and_security_summary in a new
+  values/blackdrift_telemetry_strings.xml. No translated string without "data
+  choices" fits, and overriding the upstream key would only change English.
+
+Glean still runs locally because other components record metrics through
+it; with upload off nothing leaves the device.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/androidTest/java/org/mozilla/focus/activity/robots/SettingsPrivacyMenuRobot.kt b/app/src/androidTest/java/org/mozilla/focus/activity/robots/SettingsPrivacyMenuRobot.kt
+index 7ff5b83..41c1fbd 100644
+--- a/app/src/androidTest/java/org/mozilla/focus/activity/robots/SettingsPrivacyMenuRobot.kt
++++ b/app/src/androidTest/java/org/mozilla/focus/activity/robots/SettingsPrivacyMenuRobot.kt
+@@ -59,12 +59,6 @@ class SettingsPrivacyMenuRobot {
+         assertSafeBrowsingSwitchState()
+         httpsOnlyModeSwitch().check(matches(isDisplayed()))
+         assertHttpsOnlyModeSwitchState()
+-        sendDailyUsagePingSwitch().check(matches(isDisplayed()))
+-        if (packageName != "org.mozilla.focus.debug") {
+-            assertSendDataSwitchState(true)
+-        } else {
+-            assertSendDataSwitchState()
+-        }
+     }
+ 
+     fun verifyCookiesAndSiteDataSection() {
+@@ -623,40 +617,6 @@ private fun assertHttpsOnlyModeSwitchState(enabled: Boolean = true) {
+     }
+ }
+ 
+-private fun sendDailyUsagePingSwitch(): ViewInteraction {
+-    val sendDataSwitchSummary = getStringResource(R.string.preference_daily_usage_ping_description)
+-    privacySettingsList.scrollTextIntoView(sendDataSwitchSummary)
+-    return onView(withText(sendDataSwitchSummary))
+-}
+-
+-private fun assertSendDataSwitchState(enabled: Boolean = false) {
+-    if (enabled) {
+-        sendDailyUsagePingSwitch()
+-            .check(
+-                matches(
+-                    hasCousin(
+-                        allOf(
+-                            withId(android.R.id.switch_widget),
+-                            isChecked(),
+-                        )
+-                    )
+-                )
+-            )
+-    } else {
+-        sendDailyUsagePingSwitch()
+-            .check(
+-                matches(
+-                    hasCousin(
+-                        allOf(
+-                            withId(android.R.id.switch_widget),
+-                            isNotChecked(),
+-                        )
+-                    )
+-                )
+-            )
+-    }
+-}
+-
+ private fun exceptionsList(): ViewInteraction {
+     val exceptionsTitle = getStringResource(R.string.preference_exceptions)
+     privacySettingsList.scrollTextIntoView(exceptionsTitle)
+diff --git a/app/src/main/java/org/mozilla/focus/settings/SettingsScreen.kt b/app/src/main/java/org/mozilla/focus/settings/SettingsScreen.kt
+index 0e1c950..fa1b42b 100644
+--- a/app/src/main/java/org/mozilla/focus/settings/SettingsScreen.kt
++++ b/app/src/main/java/org/mozilla/focus/settings/SettingsScreen.kt
+@@ -40,7 +40,7 @@ fun SettingsScreen(onSettingClick: (Screen.Settings.Page) -> Unit) {
+         )
+         SettingItem(
+             title = R.string.preference_privacy_and_security_header,
+-            summary = stringResource(id = R.string.preference_privacy_and_security_summary),
++            summary = stringResource(id = R.string.blackdrift_privacy_and_security_summary),
+             onClick = { onSettingClick(Screen.Settings.Page.Privacy) },
+         )
+         SettingItem(
+diff --git a/app/src/main/java/org/mozilla/focus/telemetry/GleanMetricsService.kt b/app/src/main/java/org/mozilla/focus/telemetry/GleanMetricsService.kt
+index c90e39b..f5bb6d2 100644
+--- a/app/src/main/java/org/mozilla/focus/telemetry/GleanMetricsService.kt
++++ b/app/src/main/java/org/mozilla/focus/telemetry/GleanMetricsService.kt
+@@ -119,7 +119,8 @@ class GleanMetricsService(
+ 
+         Glean.initialize(
+             applicationContext = context,
+-            uploadEnabled = telemetryEnabled,
++            // Blackdrift: Glean upload is hard-disabled, independent of isTelemetryEnabled().
++            uploadEnabled = false,
+             configuration =
+                 Configuration(
+                     channel = BuildConfig.FLAVOR,
+diff --git a/app/src/main/java/org/mozilla/focus/telemetry/GleanUsageReporting.kt b/app/src/main/java/org/mozilla/focus/telemetry/GleanUsageReporting.kt
+index a455401..3d2ca19 100644
+--- a/app/src/main/java/org/mozilla/focus/telemetry/GleanUsageReporting.kt
++++ b/app/src/main/java/org/mozilla/focus/telemetry/GleanUsageReporting.kt
+@@ -15,8 +15,9 @@ import org.mozilla.focus.GleanMetrics.Usage
+ class GleanUsageReporting : GleanUsageReportingApi {
+ 
+     override fun setEnabled(enabled: Boolean) {
+-        Pings.usageReporting.setEnabled(enabled)
+-        Pings.usageDeletionRequest.setEnabled(true)
++        // Blackdrift: these pings ignore Glean's upload switch, so keep both off for good.
++        Pings.usageReporting.setEnabled(false)
++        Pings.usageDeletionRequest.setEnabled(false)
+     }
+ 
+     override fun requestDataDeletion() {
+diff --git a/app/src/main/java/org/mozilla/focus/utils/Settings.kt b/app/src/main/java/org/mozilla/focus/utils/Settings.kt
+index fabf93d..b4a4b97 100644
+--- a/app/src/main/java/org/mozilla/focus/utils/Settings.kt
++++ b/app/src/main/java/org/mozilla/focus/utils/Settings.kt
+@@ -18,7 +18,6 @@ import org.mozilla.focus.R
+ import org.mozilla.focus.components.EngineProvider.NO_VALUE
+ import org.mozilla.focus.nimbus.FocusNimbus
+ import org.mozilla.focus.searchsuggestions.SearchSuggestionsPreferences
+-import org.mozilla.focus.telemetry.GleanMetricsService
+ 
+ /**
+  * A simple wrapper for SharedPreferences that makes reading preference a little bit easier. This class is designed to
+@@ -326,7 +325,7 @@ class Settings(private val context: Context) : PreferencesHolder {
+     var isDailyUsagePingEnabled by
+         booleanPreference(
+             getPreferenceKey(R.string.pref_key_daily_usage_ping),
+-            default = GleanMetricsService.shouldTelemetryBeEnabledByDefault(context),
++            default = false, // Blackdrift: the daily usage ping is never sent.
+             persistDefaultIfNotExists = true,
+         )
+ 
+diff --git a/app/src/main/res/values/blackdrift_telemetry_strings.xml b/app/src/main/res/values/blackdrift_telemetry_strings.xml
+new file mode 100644
+index 0000000..fd6de7f
+--- /dev/null
++++ b/app/src/main/res/values/blackdrift_telemetry_strings.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- This Source Code Form is subject to the terms of the Mozilla Public
++   - License, v. 2.0. If a copy of the MPL was not distributed with this
++   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
++<!-- Blackdrift-owned, English only: the upstream summary mentions the removed Data choices section. -->
++<resources>
++    <!-- Privacy and Security settings summary; replaces preference_privacy_and_security_summary. -->
++    <string name="blackdrift_privacy_and_security_summary" translatable="false">Tracking, cookies</string>
++</resources>
+diff --git a/app/src/main/res/xml/privacy_security_settings.xml b/app/src/main/res/xml/privacy_security_settings.xml
+index 75ef828..010a711 100644
+--- a/app/src/main/res/xml/privacy_security_settings.xml
++++ b/app/src/main/res/xml/privacy_security_settings.xml
+@@ -135,16 +135,4 @@
+             android:title="@string/preference_https_only_title" />
+     </androidx.preference.PreferenceCategory>
+ 
+-    <androidx.preference.PreferenceCategory
+-        android:layout="@layout/preference_section_header_layout"
+-        android:title="@string/preference_category_data_choices">
+-
+-        <org.mozilla.focus.widget.DailyUsageReportingSwitchPreference
+-            android:layout="@layout/focus_preference"
+-            android:key="@string/pref_key_daily_usage_ping"
+-            android:summary="@string/preference_daily_usage_ping_description"
+-            android:title="@string/preference_daily_usage_ping_title" />
+-
+-    </androidx.preference.PreferenceCategory>
+-
+ </androidx.preference.PreferenceScreen>

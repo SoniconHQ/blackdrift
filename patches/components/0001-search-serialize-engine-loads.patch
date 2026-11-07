@@ -1,0 +1,68 @@
+Blackdrift: run SearchMiddleware's engine loads one at a time.
+
+Why: on a fresh install, 1 in 5 first launches crashed with
+XmlPullParserException ("Expected start tag: END_DOCUMENT") in
+CustomSearchEngineStorage.loadSearchEngine. RegionMiddleware dispatches
+SetRegionAction twice on first launch (cached region, then the located one),
+and each dispatch starts loadSearchEngines in parallel. Blackdrift's first-run
+migration (focus-android 0207) saves the Startpage engine in one load, and
+SearchEngineWriter writes straight into the final XML file (not through
+AtomicFile), so the custom-engine listing in the other load can read a
+half-written file. Upstream Focus has no first-run migration write, so it
+rarely hits this; bug 1796453 ("Intermittent loadSearchEngineList
+successfully loads after saving") is the nearest upstream report. A Mutex
+around the load body (moved into loadSearchEnginesLocked) serialises the
+loads, so the second one starts only after the first has saved and
+listed. It also stops two overlapping loads from racing to set the state.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/components/feature/search/src/main/java/mozilla/components/feature/search/middleware/SearchMiddleware.kt b/components/feature/search/src/main/java/mozilla/components/feature/search/middleware/SearchMiddleware.kt
+index ed72a120..6bc91622 100644
+--- a/components/feature/search/src/main/java/mozilla/components/feature/search/middleware/SearchMiddleware.kt
++++ b/components/feature/search/src/main/java/mozilla/components/feature/search/middleware/SearchMiddleware.kt
+@@ -13,6 +13,8 @@ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.async
+ import kotlinx.coroutines.coroutineScope
+ import kotlinx.coroutines.launch
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
+ import mozilla.appservices.remotesettings.RemoteSettingsClient
+ import mozilla.components.browser.state.action.BrowserAction
+ import mozilla.components.browser.state.action.SearchAction
+@@ -73,6 +75,7 @@ class SearchMiddleware(
+ ) : Middleware<BrowserState, BrowserAction> {
+     private val logger = Logger("SearchMiddleware")
+     private val scope = CoroutineScope(ioDispatcher)
++    private val loadMutex = Mutex()
+     private val defaultSearchEngineIcon =
+         BitmapFactory.decodeResource(
+             context.resources,
+@@ -127,6 +130,18 @@ class SearchMiddleware(
+         region: RegionState,
+         distribution: String? = null,
+     ) = scope.launch {
++        // Blackdrift: one load at a time. Two SetRegionActions (cached region, then the
++        // located one) used to run two loads at once on first launch; a migration
++        // save in one raced the custom-engine listing in the other, which read a
++        // half-written XML file and crashed with XmlPullParserException.
++        loadMutex.withLock { loadSearchEnginesLocked(store, region, distribution) }
++    }
++
++    private suspend fun loadSearchEnginesLocked(
++        store: Store<BrowserState, BrowserAction>,
++        region: RegionState,
++        distribution: String?,
++    ) = coroutineScope {
+         val migrationValues = migration?.getValuesToMigrate()
+         performCustomSearchEnginesMigration(migrationValues)
+ 
+@@ -141,7 +156,7 @@ class SearchMiddleware(
+                 )
+             if (!shouldRebuildSearchConfiguration) {
+                 store.dispatch(SearchConfigurationAvailabilityChanged(false))
+-                return@launch
++                return@coroutineScope
+             }
+         }
+ 

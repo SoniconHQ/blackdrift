@@ -1,0 +1,86 @@
+Blackdrift: Gecko Remote Settings never downloads Mozilla's experiment and messaging collections.
+
+Why: on first launch GeckoView's Remote Settings client has no local data
+for most collections, so the first client that reads one calls
+RemoteSettings.pullStartupBundle(). That downloads
+bundles/startup.json.mozlz4 from the attachments CDN, imports every
+changeset in it into the local database and registers a client for each,
+so every later poll keeps them all in sync. The bundle is built for desktop
+Firefox: besides lists Blackdrift uses (tracking protection, URL-classifier
+exceptions, fingerprinting overrides, query stripping, DoH), it carries
+nimbus-desktop-experiments, nimbus-secure-experiments, message-groups, cfr,
+normandy-recipes-capabilities and newtab-wallpapers-v2. Nothing in Blackdrift
+reads those (GeckoView never calls ExperimentAPI.init(), and there is no
+ASRouter or Normandy), but downloading them is still contact with Mozilla's
+experiment service, which Blackdrift promises not to make. Patch
+focus-android/0101 only stops the app-side Nimbus fetch.
+
+Two changes in services/settings/remote-settings.sys.mjs:
+
+- pullStartupBundle() pulls nothing. Its only caller, a client whose
+  database is empty, then syncs that one collection by itself (upstream's
+  own fallback for collections missing from the bundle). The collections
+  Blackdrift reads still arrive, one request each, and the experiment records are
+  never downloaded.
+- the poll's client lookup skips a fixed list of experiment and messaging
+  collections, so a database written by an earlier Blackdrift build (which
+  imported them from the bundle) is never synced again.
+
+Remote Settings itself stays on, and every other collection is handled as
+before. The file is JavaScript packaged into omni.ja, which the artifact
+build stages from the local tree, so the change ships without compiled
+code.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/services/settings/remote-settings.sys.mjs b/services/settings/remote-settings.sys.mjs
+index b180cfc850ee..02549bc3fe25 100644
+--- a/services/settings/remote-settings.sys.mjs
++++ b/services/settings/remote-settings.sys.mjs
+@@ -48,6 +48,23 @@ const SIGNERS_BY_BUCKET = {
+   // This is very (very) unlikely though.
+ };
+ 
++// Blackdrift: no startup changesets bundle (see pullStartupBundle).
++const BLACKDRIFT_PULL_STARTUP_BUNDLE = false;
++
++// Blackdrift: Mozilla experiment and messaging collections. Blackdrift runs no Gecko
++// Nimbus, Normandy or messaging system, so the poll never syncs these, even
++// when a database from an earlier Blackdrift build still holds them.
++const BLACKDRIFT_SKIPPED_COLLECTIONS = new Set([
++  "cfr",
++  "message-groups",
++  "newtab-wallpapers-v2",
++  "nimbus-desktop-experiments",
++  "nimbus-mobile-experiments",
++  "nimbus-preview",
++  "nimbus-secure-experiments",
++  "normandy-recipes-capabilities",
++]);
++
+ ChromeUtils.defineLazyGetter(lazy, "gPrefs", () => {
+   return Services.prefs.getBranch(PREF_SETTINGS_BRANCH);
+ });
+@@ -186,6 +203,10 @@ function remoteSettingsFunction() {
+    * with default options if possible, or `null` if bucket/collection are unknown.
+    */
+   async function _client(bucketName, collectionName) {
++    if (BLACKDRIFT_SKIPPED_COLLECTIONS.has(collectionName)) {
++      lazy.console.debug(`Blackdrift: not syncing ${bucketName}/${collectionName}`);
++      return null;
++    }
+     // Check if a client was registered for this bucket/collection. Potentially
+     // with some specific options like signer, filter function etc.
+     const client = _clients.get(collectionName);
+@@ -256,7 +277,10 @@ function remoteSettingsFunction() {
+    * @throws {Error} If the signature of any bundled changeset is invalid.
+    */
+   remoteSettings.pullStartupBundle = async () => {
+-    if (lazy.Utils.shouldSkipRemoteActivity) {
++    // Blackdrift: the startup bundle is built for desktop Firefox and carries the
++    // experiment and messaging collections. Pull nothing, so each collection
++    // Blackdrift reads is synced on its own (the caller's fallback).
++    if (!BLACKDRIFT_PULL_STARTUP_BUNDLE || lazy.Utils.shouldSkipRemoteActivity) {
+       return [];
+     }
+ 

@@ -1,0 +1,149 @@
+Blackdrift: make Startpage the default search engine in every region.
+
+Why: Focus picks its default engine from Mozilla's region-dependent search
+configuration (android-components' bundled assets/search/list.json; the
+Remote Settings search-config-v2 path is off by default through the Nimbus
+remote-search-configuration flag), usually Google with Mozilla partner codes.
+Blackdrift should not send searches under Mozilla's commercial codes. Startpage is
+not in Mozilla's list, so a new BlackdriftSearchMigration wraps Focus's
+SearchMigration (SearchMiddleware's migration hook): on the first engine load
+after install it adds Startpage as a search engine (with suggestions) and
+selects it as the user's default, once. This works for the bundled and the
+remote configuration alike and does not edit Mozilla's engine list; users can
+still pick any other engine. Only a one-line wiring change touches upstream
+code (Components.kt).
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/main/java/org/mozilla/focus/Components.kt b/app/src/main/java/org/mozilla/focus/Components.kt
+index f880c8e..8ed0a46 100644
+--- a/app/src/main/java/org/mozilla/focus/Components.kt
++++ b/app/src/main/java/org/mozilla/focus/Components.kt
+@@ -88,6 +88,7 @@ import org.mozilla.focus.ext.isTablet
+ import org.mozilla.focus.ext.settings
+ import org.mozilla.focus.media.MediaSessionService
+ import org.mozilla.focus.nimbus.FocusNimbus
++import org.mozilla.focus.search.BlackdriftSearchMigration
+ import org.mozilla.focus.search.SearchFilterMiddleware
+ import org.mozilla.focus.search.SearchMigration
+ import org.mozilla.focus.state.AppState
+@@ -215,7 +216,7 @@ class Components(
+                         RegionMiddleware(context, locationService, applicationScope = applicationScope),
+                         SearchMiddleware(
+                             context,
+-                            migration = SearchMigration(context),
++                            migration = BlackdriftSearchMigration(context, SearchMigration(context)),
+                             searchEngineSelectorConfig = getSearchEngineSelectorConfig(context),
+                         ),
+                         SearchFilterMiddleware(),
+diff --git a/app/src/main/java/org/mozilla/focus/search/BlackdriftSearchMigration.kt b/app/src/main/java/org/mozilla/focus/search/BlackdriftSearchMigration.kt
+new file mode 100644
+index 0000000..66f7949
+--- /dev/null
++++ b/app/src/main/java/org/mozilla/focus/search/BlackdriftSearchMigration.kt
+@@ -0,0 +1,105 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.focus.search
++
++import android.content.Context
++import android.graphics.BitmapFactory
++import android.util.Base64
++import androidx.core.content.edit
++import mozilla.components.browser.state.search.SearchEngine
++import mozilla.components.feature.search.ext.createSearchEngine
++import mozilla.components.feature.search.middleware.SearchMiddleware
++
++private const val PREF_FILE_BLACKDRIFT_SEARCH = "blackdrift-search"
++private const val PREF_KEY_STARTPAGE_SEEDED = "pref_startpage_seeded"
++
++private const val STARTPAGE_NAME = "Startpage"
++private const val STARTPAGE_SEARCH_URL = "https://www.startpage.com/sp/search?query={searchTerms}"
++private const val STARTPAGE_SUGGEST_URL = "https://www.startpage.com/osuggestions?q={searchTerms}"
++
++// 60x60 PNG favicon from https://www.startpage.com/sp/cdn/favicons/apple-icon-60x60.png
++private const val STARTPAGE_ICON_PNG_BASE64 =
++    "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"
++
++/**
++ * Blackdrift: makes Startpage the default search engine, in every region.
++ *
++ * Focus picks its default from Mozilla's region-based search configuration
++ * (bundled list.json, or Remote Settings search-config-v2), which carries
++ * Mozilla partner codes. On the first search-engine load after install, this
++ * adds Startpage as a search engine and selects it as the user's default
++ * through [SearchMiddleware]'s migration hook. It runs once; afterwards the
++ * user can pick or remove any engine. The legacy Focus [delegate] migration
++ * keeps working and an explicit legacy choice still wins.
++ */
++class BlackdriftSearchMigration(
++    private val context: Context,
++    private val delegate: SearchMiddleware.Migration,
++) : SearchMiddleware.Migration {
++
++    override fun getValuesToMigrate(): SearchMiddleware.Migration.MigrationValues? {
++        val legacy = delegate.getValuesToMigrate()
++        val preferences = context.getSharedPreferences(PREF_FILE_BLACKDRIFT_SEARCH, Context.MODE_PRIVATE)
++        if (preferences.getBoolean(PREF_KEY_STARTPAGE_SEEDED, false)) {
++            return legacy
++        }
++
++        preferences.edit {
++            putBoolean(PREF_KEY_STARTPAGE_SEEDED, true)
++        }
++
++        return SearchMiddleware.Migration.MigrationValues(
++            customSearchEngines = legacy?.customSearchEngines.orEmpty() + createStartpage(),
++            defaultSearchEngineName = legacy?.defaultSearchEngineName?.takeIf { it.isNotEmpty() }
++                ?: STARTPAGE_NAME,
++        )
++    }
++
++    private fun createStartpage(): SearchEngine {
++        val png = Base64.decode(STARTPAGE_ICON_PNG_BASE64, Base64.DEFAULT)
++        return createSearchEngine(
++            name = STARTPAGE_NAME,
++            url = STARTPAGE_SEARCH_URL,
++            icon = BitmapFactory.decodeByteArray(png, 0, png.size),
++            suggestUrl = STARTPAGE_SUGGEST_URL,
++            isGeneral = true,
++        )
++    }
++}

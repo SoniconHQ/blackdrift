@@ -1,0 +1,281 @@
+Blackdrift: keep no Gecko crash dumps on the device.
+
+Why: when a content process (or the app) crashes, Gecko writes a minidump
+(.dmp, about 1.5 MB) and a .extra file into the app's private
+files/mozilla/Crash Reports/pending/. The .extra holds the crashed page's
+URL. Blackdrift never uploads them (0102), so they are leftover browsing data
+that outlives the session and the "erase" button
+(docs/telemetry-network-check.md, Findings 2).
+
+Gecko keeps writing the dumps on purpose. Without a crash handler
+GeckoRuntime sets MOZ_CRASHREPORTER_DISABLE=1 and no dump is written, but
+GeckoView then cannot tell a crash from an out-of-memory kill: it sends
+onCrash only when the dead process left a dump ID
+(GeckoViewContent.sys.mjs, "ipc:content-shutdown"), otherwise onKill. A
+crash would then skip the tab-crash screen and reload the tab at once, in a
+loop for a page that crashes every time. The switch also lives in Gecko's
+prebuilt code, which an artifact build cannot change.
+
+So the new CrashDumpCleaner deletes the files (not the directories) in
+Crash Reports/pending, Crash Reports/events and files/minidumps:
+
+- on every app start, in the main process (covers a crash of the app
+  itself);
+- after every tab crash (CrashAction), so the tab-crash screen still shows
+  and its "Close tab" still recovers;
+- whenever the browser store is left with no tab: the erase button, the
+  notification's erase action, the erase shortcuts, removing Blackdrift from
+  recents, and closing the last tab.
+
+The deletion runs on Dispatchers.IO in the application scope. New unit test
+CrashDumpCleanerTest.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/main/java/org/mozilla/focus/Components.kt b/app/src/main/java/org/mozilla/focus/Components.kt
+index 4eb4157e..f880c8e0 100644
+--- a/app/src/main/java/org/mozilla/focus/Components.kt
++++ b/app/src/main/java/org/mozilla/focus/Components.kt
+@@ -81,6 +81,8 @@ import org.mozilla.focus.components.EngineProvider
+ import org.mozilla.focus.downloads.DownloadService
+ import org.mozilla.focus.engine.AppContentInterceptor
+ import org.mozilla.focus.engine.ClientWrapper
++import org.mozilla.focus.engine.CrashDumpCleaner
++import org.mozilla.focus.engine.CrashDumpCleanerMiddleware
+ import org.mozilla.focus.engine.SanityCheckMiddleware
+ import org.mozilla.focus.experiments.createNimbus
+ import org.mozilla.focus.ext.components
+@@ -145,6 +147,11 @@ class Components(
+         FileUploadsDirCleaner(applicationScope) { context.cacheDir }
+     }
+ 
++    // Blackdrift: Gecko's crash dumps are deleted, never kept (CrashDumpCleaner).
++    val crashDumpCleaner: CrashDumpCleaner by lazy {
++        CrashDumpCleaner(applicationScope) { context.filesDir }
++    }
++
+     val remoteSettingsSyncScheduler by lazy {
+         DefaultRemoteSettingsSyncScheduler(
+             context,
+@@ -226,6 +233,8 @@ class Components(
+                         RecordingDevicesMiddleware(context, notificationsDelegate),
+                         CfrMiddleware(appStore, settings),
+                         FileUploadsDirCleanerMiddleware(fileUploadsDirCleaner),
++                        // Blackdrift: delete crash dumps after a tab crash and when the session is erased.
++                        CrashDumpCleanerMiddleware { crashDumpCleaner.cleanCrashDumps() },
+                     ) +
+                         EngineMiddleware.create(
+                             engine,
+diff --git a/app/src/main/java/org/mozilla/focus/FocusApplication.kt b/app/src/main/java/org/mozilla/focus/FocusApplication.kt
+index 20be4ba6..371c9a94 100644
+--- a/app/src/main/java/org/mozilla/focus/FocusApplication.kt
++++ b/app/src/main/java/org/mozilla/focus/FocusApplication.kt
+@@ -126,6 +126,9 @@ open class FocusApplication : Application(), Provider {
+                 // Remove stale temporary uploaded files.
+                 components.fileUploadsDirCleaner.cleanUploadsDirectory()
+ 
++                // Blackdrift: delete crash dumps left by an earlier run (including a crash of the app itself).
++                components.crashDumpCleaner.cleanCrashDumps()
++
+                 withContext(ioDispatcher) {
+                     components.settings.deleteObsoleteCookieBannerDataIfNeeded()
+                 }
+diff --git a/app/src/main/java/org/mozilla/focus/engine/CrashDumpCleaner.kt b/app/src/main/java/org/mozilla/focus/engine/CrashDumpCleaner.kt
+new file mode 100644
+index 00000000..69a1be37
+--- /dev/null
++++ b/app/src/main/java/org/mozilla/focus/engine/CrashDumpCleaner.kt
+@@ -0,0 +1,93 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.focus.engine
++
++import androidx.annotation.VisibleForTesting
++import java.io.File
++import kotlinx.coroutines.CoroutineDispatcher
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.launch
++import mozilla.components.browser.state.action.BrowserAction
++import mozilla.components.browser.state.action.CrashAction
++import mozilla.components.browser.state.action.CustomTabListAction
++import mozilla.components.browser.state.action.TabListAction
++import mozilla.components.browser.state.state.BrowserState
++import mozilla.components.lib.state.Middleware
++import mozilla.components.lib.state.Store
++
++/**
++ * Blackdrift: deletes the crash dumps Gecko writes when a process crashes.
++ *
++ * Gecko's native crash reporter stays installed, because GeckoView only reports a content-process crash as a crash
++ * (and so shows the tab-crash screen) when a minidump was written; without one the crash looks like an OOM kill
++ * and the tab silently reloads, which loops on a page that crashes every time. Blackdrift never uploads these files
++ * (patch 0102), so they are only leftover browsing data: the `.extra` file holds the crashed page's URL.
++ *
++ * Only the files are deleted. The directories stay, so Gecko can write the next dump.
++ *
++ * @param scope Scope the deletion runs in.
++ * @param dispatcher Dispatcher for the file I/O.
++ * @param filesDir Returns the app's private files directory (`Context.getFilesDir()`).
++ */
++class CrashDumpCleaner(
++    private val scope: CoroutineScope,
++    private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
++    private val filesDir: () -> File,
++) {
++    /** Deletes every pending crash dump in the background. */
++    fun cleanCrashDumps() {
++        scope.launch(dispatcher) { deleteCrashDumps() }
++    }
++
++    /** Deletes every pending crash dump on the calling thread. */
++    @VisibleForTesting
++    internal fun deleteCrashDumps() {
++        dumpDirectories().forEach { dir -> dir.listFiles()?.forEach { it.deleteRecursively() } }
++    }
++
++    @VisibleForTesting
++    internal fun dumpDirectories(): List<File> {
++        val root = filesDir()
++        val crashReports = File(root, "mozilla/Crash Reports")
++        return listOf(
++            // Minidumps (.dmp) and their metadata (.extra, with the page URL) waiting for an upload that never
++            // happens.
++            File(crashReports, "pending"),
++            // Crash event records (time, crash ID) for Gecko's crash manager.
++            File(crashReports, "events"),
++            // Where GeckoRuntime's crash helper writes child-process minidumps first.
++            File(root, "minidumps"),
++        )
++    }
++}
++
++/**
++ * Blackdrift: runs [onCleanUp] after a tab crash and whenever the browsing session ends with no tab left (the erase
++ * button, the notification's erase action, the erase shortcuts, removing the app from recents, or closing the
++ * last tab). Every Focus erase path ends in a tab list action that leaves the store empty.
++ */
++class CrashDumpCleanerMiddleware(
++    private val onCleanUp: () -> Unit,
++) : Middleware<BrowserState, BrowserAction> {
++    override fun invoke(
++        store: Store<BrowserState, BrowserAction>,
++        next: (BrowserAction) -> Unit,
++        action: BrowserAction,
++    ) {
++        next(action)
++
++        when (action) {
++            is CrashAction -> onCleanUp()
++            is TabListAction,
++            is CustomTabListAction -> {
++                if (store.state.tabs.isEmpty() && store.state.customTabs.isEmpty()) {
++                    onCleanUp()
++                }
++            }
++            else -> Unit
++        }
++    }
++}
+diff --git a/app/src/test/java/org/mozilla/focus/engine/CrashDumpCleanerTest.kt b/app/src/test/java/org/mozilla/focus/engine/CrashDumpCleanerTest.kt
+new file mode 100644
+index 00000000..ea116c4b
+--- /dev/null
++++ b/app/src/test/java/org/mozilla/focus/engine/CrashDumpCleanerTest.kt
+@@ -0,0 +1,94 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.focus.engine
++
++import java.io.File
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import mozilla.components.browser.state.action.CrashAction
++import mozilla.components.browser.state.action.TabListAction
++import mozilla.components.browser.state.state.BrowserState
++import mozilla.components.browser.state.state.createTab
++import mozilla.components.browser.state.store.BrowserStore
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Rule
++import org.junit.Test
++import org.junit.rules.TemporaryFolder
++
++class CrashDumpCleanerTest {
++
++    @get:Rule val tempFolder = TemporaryFolder()
++
++    @Test
++    fun `deleteCrashDumps removes pending dumps, events and minidumps but keeps the directories`() {
++        val filesDir = tempFolder.newFolder("files")
++        val pending = File(filesDir, "mozilla/Crash Reports/pending").apply { mkdirs() }
++        val events = File(filesDir, "mozilla/Crash Reports/events").apply { mkdirs() }
++        val minidumps = File(filesDir, "minidumps").apply { mkdirs() }
++        File(pending, "id.dmp").writeText("dump")
++        File(pending, "id.extra").writeText("{\"URL\":\"https://example.com\"}")
++        File(events, "id").writeText("event")
++        File(minidumps, "nested").apply { mkdirs() }.resolve("id.dmp").writeText("dump")
++        val installTime = File(filesDir, "mozilla/Crash Reports/InstallTime1").apply { writeText("1") }
++        val profileFile = File(filesDir, "mozilla/profile/prefs.js").apply {
++            parentFile!!.mkdirs()
++            writeText("prefs")
++        }
++
++        CrashDumpCleaner(CoroutineScope(Dispatchers.Unconfined)) { filesDir }.deleteCrashDumps()
++
++        listOf(pending, events, minidumps).forEach { dir ->
++            assertTrue(dir.isDirectory)
++            assertEquals(emptyList<String>(), dir.list()!!.toList())
++        }
++        assertTrue(installTime.exists())
++        assertTrue(profileFile.exists())
++    }
++
++    @Test
++    fun `deleteCrashDumps does nothing when Gecko never wrote a dump`() {
++        val filesDir = tempFolder.newFolder("files")
++
++        CrashDumpCleaner(CoroutineScope(Dispatchers.Unconfined)) { filesDir }.deleteCrashDumps()
++
++        assertFalse(File(filesDir, "mozilla").exists())
++        assertFalse(File(filesDir, "minidumps").exists())
++    }
++
++    @Test
++    fun `middleware cleans up after a tab crash`() {
++        var cleanUps = 0
++        val tab = createTab("https://example.com", id = "tab", private = true)
++        val store =
++            BrowserStore(
++                initialState = BrowserState(tabs = listOf(tab)),
++                middleware = listOf(CrashDumpCleanerMiddleware { cleanUps++ }),
++            )
++
++        store.dispatch(CrashAction.SessionCrashedAction("tab"))
++
++        assertEquals(1, cleanUps)
++    }
++
++    @Test
++    fun `middleware cleans up when the last tab is erased, not while tabs remain`() {
++        var cleanUps = 0
++        val first = createTab("https://example.com", id = "first", private = true)
++        val second = createTab("https://example.org", id = "second", private = true)
++        val store =
++            BrowserStore(
++                initialState = BrowserState(tabs = listOf(first, second)),
++                middleware = listOf(CrashDumpCleanerMiddleware { cleanUps++ }),
++            )
++
++        store.dispatch(TabListAction.RemoveTabAction("first"))
++        assertEquals(0, cleanUps)
++
++        store.dispatch(TabListAction.RemoveAllTabsAction())
++        assertEquals(1, cleanUps)
++    }
++}

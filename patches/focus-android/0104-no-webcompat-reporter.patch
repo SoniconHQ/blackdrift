@@ -1,0 +1,174 @@
+Blackdrift: remove the "Report broken site" WebCompat reporter.
+
+Why: the reporter's built-in extension opens https://webcompat.com/issues/new
+and posts the page URL plus diagnostic data (browser, device, tracking
+protection and page details) to it the moment the menu item is tapped, before
+the user has decided to file anything. webcompat.com is run by Mozilla's web
+compatibility team, so this is data sent to Mozilla, which Blackdrift promises not
+to do. The extension is no longer installed, and webCompatReporterAction()
+always returns null, so the browser and custom-tab menus never show the item,
+also for an install upgraded from a build that had already registered the
+extension. WebCompatFeature (Mozilla's local site interventions) stays.
+The upstream unit tests that expect the reporter's action (CustomTabMenuTest,
+BrowserMenuTest, MenuMiddlewareTest) are @Ignore'd with a Blackdrift reason, and
+the androidTest ThreeDotMainMenuTest no longer checks for the menu item.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/androidTest/java/org/mozilla/focus/activity/ThreeDotMainMenuTest.kt b/app/src/androidTest/java/org/mozilla/focus/activity/ThreeDotMainMenuTest.kt
+index b97c896c1c..2776cf7e1b 100644
+--- a/app/src/androidTest/java/org/mozilla/focus/activity/ThreeDotMainMenuTest.kt
++++ b/app/src/androidTest/java/org/mozilla/focus/activity/ThreeDotMainMenuTest.kt
+@@ -107,7 +107,7 @@ class ThreeDotMainMenuTest {
+                 verifyOpenInButtonExists()
+                 verifyRequestDesktopSiteExists()
+                 verifySettingsButtonExists()
+-                verifyReportSiteIssueButtonExists()
++                // Blackdrift: no "Report broken site" item (patch 0014).
+             }
+     }
+ 
+diff --git a/app/src/main/java/org/mozilla/focus/Components.kt b/app/src/main/java/org/mozilla/focus/Components.kt
+index 47d3086c51..4eb4157ec0 100644
+--- a/app/src/main/java/org/mozilla/focus/Components.kt
++++ b/app/src/main/java/org/mozilla/focus/Components.kt
+@@ -54,7 +54,6 @@ import mozilla.components.feature.tabs.TabsUseCases
+ import mozilla.components.feature.top.sites.PinnedSiteStorage
+ import mozilla.components.feature.top.sites.TopSitesUseCases
+ import mozilla.components.feature.webcompat.WebCompatFeature
+-import mozilla.components.feature.webcompat.reporter.WebCompatReporterFeature
+ import mozilla.components.lib.crash.CrashReporter
+ import mozilla.components.lib.crash.sentry.SentryService
+ import mozilla.components.lib.crash.service.CrashReporterService
+@@ -177,7 +176,7 @@ class Components(
+             ?: EngineProvider.createEngine(context, engineDefaultSettings).apply {
+                 EngineProvider.setupSafeBrowsing(this, this@Components.settings.shouldUseSafeBrowsing())
+                 WebCompatFeature.install(this)
+-                WebCompatReporterFeature.install(this, "focus-geckoview")
++                // Blackdrift: no WebCompat reporter; it posts page data to webcompat.com (patch 0014).
+             }
+     }
+ 
+diff --git a/app/src/main/java/org/mozilla/focus/menu/browser/WebCompatReporter.kt b/app/src/main/java/org/mozilla/focus/menu/browser/WebCompatReporter.kt
+index 67478c2630..19a55e6743 100644
+--- a/app/src/main/java/org/mozilla/focus/menu/browser/WebCompatReporter.kt
++++ b/app/src/main/java/org/mozilla/focus/menu/browser/WebCompatReporter.kt
+@@ -19,7 +19,6 @@ import mozilla.components.browser.state.state.BrowserState
+ import mozilla.components.browser.state.state.SessionState
+ import mozilla.components.browser.state.store.BrowserStore
+ import mozilla.components.concept.engine.webextension.Action
+-import mozilla.components.feature.webcompat.reporter.WebCompatReporterFeature.WEBCOMPAT_REPORTER_EXTENSION_ID
+ import mozilla.components.lib.state.ext.flow
+ import mozilla.components.support.base.log.logger.Logger
+ import mozilla.components.support.ktx.android.util.dpToPx
+@@ -34,15 +33,9 @@ private const val ICON_SIZE_DP = 24
+  * The extension exposes a page action, which - unlike a browser action - is only shown when explicitly enabled, which
+  * the extension does for the http and https pages it can report.
+  */
+-internal fun BrowserState.webCompatReporterAction(tab: SessionState? = selectedTab): Action? {
+-    val extension = extensions[WEBCOMPAT_REPORTER_EXTENSION_ID]?.takeIf { it.enabled } ?: return null
+-
+-    if (!extension.allowedInPrivateBrowsing && tab?.content?.private == true) return null
+-
+-    return extension.pageAction?.copyWithOverride(tab?.extensionState?.get(extension.id)?.pageAction)?.takeIf {
+-        it.enabled == true
+-    }
+-}
++// Blackdrift: never offer "Report broken site" (patch 0014), even if an older build registered the extension.
++@Suppress("UNUSED_PARAMETER", "UnusedParameter", "FunctionOnlyReturningConstant")
++internal fun BrowserState.webCompatReporterAction(tab: SessionState? = selectedTab): Action? = null
+ 
+ /**
+  * The icon which the WebCompat Reporter extension provides for the menu item reporting the current page.
+diff --git a/app/src/test/java/org/mozilla/focus/menu/MenuMiddlewareTest.kt b/app/src/test/java/org/mozilla/focus/menu/MenuMiddlewareTest.kt
+index 7def280088..f1d552f239 100644
+--- a/app/src/test/java/org/mozilla/focus/menu/MenuMiddlewareTest.kt
++++ b/app/src/test/java/org/mozilla/focus/menu/MenuMiddlewareTest.kt
+@@ -35,6 +35,7 @@ import mozilla.telemetry.glean.testing.GleanTestRule
+ import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertTrue
+ import org.junit.Before
++import org.junit.Ignore
+ import org.junit.Rule
+ import org.junit.Test
+ import org.junit.runner.RunWith
+@@ -195,6 +196,7 @@ class MenuMiddlewareTest {
+     }
+ 
+     @Test
++    @Ignore("Blackdrift: patch 0014 removes the WebCompat reporter; webCompatReporterAction() is always null.")
+     fun `WHEN report site issue is tapped THEN invoke the latest action for the menu tab`() = runTest {
+         var globalClicks = 0
+         var tabClicks = 0
+@@ -222,6 +224,7 @@ class MenuMiddlewareTest {
+     }
+ 
+     @Test
++    @Ignore("Blackdrift: patch 0014 removes the WebCompat reporter; webCompatReporterAction() is always null.")
+     fun `WHEN reporting from a custom tab THEN use its action rather than the selected regular tab`() = runTest {
+         var clicks = 0
+         var globalClicks = 0
+diff --git a/app/src/test/java/org/mozilla/focus/menu/browser/BrowserMenuTest.kt b/app/src/test/java/org/mozilla/focus/menu/browser/BrowserMenuTest.kt
+index 7ca54c37e8..131462ceda 100644
+--- a/app/src/test/java/org/mozilla/focus/menu/browser/BrowserMenuTest.kt
++++ b/app/src/test/java/org/mozilla/focus/menu/browser/BrowserMenuTest.kt
+@@ -31,6 +31,7 @@ import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertFalse
+ import org.junit.Assert.assertNull
+ import org.junit.Assert.assertTrue
++import org.junit.Ignore
+ import org.junit.Test
+ import org.junit.runner.RunWith
+ import org.mozilla.focus.R
+@@ -162,6 +163,7 @@ class BrowserMenuTest {
+     }
+ 
+     @Test
++    @Ignore("Blackdrift: patch 0014 removes the WebCompat reporter; webCompatReporterAction() is always null.")
+     fun `GIVEN an enabled reporter WHEN building the menu THEN use its page action title`() {
+         val state = browserState.copy(extensions = mapOf(extension.id to extension))
+         val item = menu(state).currentMenuGroups().flatMap { it.items }.item(Item.ReportSiteIssue)
+@@ -189,6 +191,7 @@ class BrowserMenuTest {
+     }
+ 
+     @Test
++    @Ignore("Blackdrift: patch 0014 removes the WebCompat reporter; webCompatReporterAction() is always null.")
+     fun `GIVEN the reporter starts up while the menu is shown THEN load its icon once it is available`() = runTest {
+         val icon = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+         val store = BrowserStore(browserState)
+@@ -206,6 +209,7 @@ class BrowserMenuTest {
+     }
+ 
+     @Test
++    @Ignore("Blackdrift: patch 0014 removes the WebCompat reporter; webCompatReporterAction() is always null.")
+     fun `GIVEN a tab override WHEN resolving reporter action THEN merge it with the global action`() {
+         val override = action.copy(title = "Report this tab", enabled = true)
+         val state =
+diff --git a/app/src/test/java/org/mozilla/focus/menu/browser/CustomTabMenuTest.kt b/app/src/test/java/org/mozilla/focus/menu/browser/CustomTabMenuTest.kt
+index 78bbefcfc4..4f6b640f0f 100644
+--- a/app/src/test/java/org/mozilla/focus/menu/browser/CustomTabMenuTest.kt
++++ b/app/src/test/java/org/mozilla/focus/menu/browser/CustomTabMenuTest.kt
+@@ -32,6 +32,7 @@ import mozilla.components.support.test.robolectric.testContext
+ import org.junit.Assert.assertEquals
+ import org.junit.Assert.assertFalse
+ import org.junit.Assert.assertTrue
++import org.junit.Ignore
+ import org.junit.Test
+ import org.junit.runner.RunWith
+ import org.mozilla.focus.R
+@@ -113,6 +114,7 @@ class CustomTabMenuTest {
+     }
+ 
+     @Test
++    @Ignore("Blackdrift: patch 0014 removes the WebCompat reporter; webCompatReporterAction() is always null.")
+     fun `GIVEN an enabled reporter WHEN building the menu THEN report the custom tab`() {
+         val action = Action("Report broken site…", true, null, null, null, null) {}
+         val extension =
+@@ -136,6 +138,7 @@ class CustomTabMenuTest {
+     }
+ 
+     @Test
++    @Ignore("Blackdrift: patch 0014 removes the WebCompat reporter; webCompatReporterAction() is always null.")
+     fun `GIVEN the reporter starts up while the custom tab menu is shown THEN load its own icon once`() = runTest {
+         val icon = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+         var iconLoads = 0

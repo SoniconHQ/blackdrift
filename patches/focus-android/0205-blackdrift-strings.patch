@@ -1,0 +1,146 @@
+Blackdrift: remove Firefox/Mozilla product names from translatable UI strings.
+
+Why: a few upstream strings hard-code Mozilla, Firefox or Focus in every
+locale (about_content "produced by Mozilla", the "Mozilla" settings category,
+"Firefox Terms of Use", "Firefox cares about your privacy", "Search in Focus",
+"Example: mozilla.org"). Overriding those keys would only change English, so
+the call sites are pointed at other keys instead:
+- existing translated, brand-neutral keys where one fits (menu_about,
+  menu_terms_of_use);
+- new non-translatable blackdrift_* keys in a new values/blackdrift_strings.xml
+  otherwise, including the About attribution "Blackdrift is based on Firefox Focus
+  by Mozilla. Not affiliated with or endorsed by Mozilla.", and
+  blackdrift_autocomplete_add_example "Example: example.com" (upstream deleted the
+  neutral preference_autocomplete_add_example key after Firefox 150).
+A moved call site fails to compile instead of silently showing Mozilla.
+The user agent is not touched.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/build.gradle b/app/build.gradle
+index 3be908f..74799e4 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -135,7 +135,7 @@ android {
+             applicationId "org.sonicon.browser"
+ 
+             // This is used when the user selects text in other third-party apps. See https://github.com/mozilla-mobile/focus-android/issues/6478
+-            manifestPlaceholders = [textSelectionSearchAction: "@string/text_selection_search_action_focus"]
++            manifestPlaceholders = [textSelectionSearchAction: "@string/blackdrift_text_selection_search_action"]
+         }
+         klar {
+             dimension "product"
+diff --git a/app/src/main/java/org/mozilla/focus/fragment/about/AboutFragment.kt b/app/src/main/java/org/mozilla/focus/fragment/about/AboutFragment.kt
+index 961023f..3791067 100644
+--- a/app/src/main/java/org/mozilla/focus/fragment/about/AboutFragment.kt
++++ b/app/src/main/java/org/mozilla/focus/fragment/about/AboutFragment.kt
+@@ -51,7 +51,7 @@ class AboutFragment : BaseComposeFragment() {
+     override fun Content() {
+         val context = LocalContext.current
+         val appName = stringResource(R.string.app_name)
+-        val aboutContent = stringResource(R.string.about_content, appName, "")
++        val aboutContent = stringResource(R.string.blackdrift_about_content, appName)
+         val servicesAbbreviation = stringResource(R.string.services_abbreviation)
+ 
+         val aboutHeader =
+diff --git a/app/src/main/java/org/mozilla/focus/fragment/onboarding/OnboardingFirstScreenCompose.kt b/app/src/main/java/org/mozilla/focus/fragment/onboarding/OnboardingFirstScreenCompose.kt
+index 33018d3..c5bf60a 100644
+--- a/app/src/main/java/org/mozilla/focus/fragment/onboarding/OnboardingFirstScreenCompose.kt
++++ b/app/src/main/java/org/mozilla/focus/fragment/onboarding/OnboardingFirstScreenCompose.kt
+@@ -96,16 +96,16 @@ fun OnBoardingFirstScreenCompose(
+             text =
+                 stringResource(
+                     R.string.onboarding_first_screen_terms_of_use_text_2,
+-                    stringResource(R.string.onboarding_first_screen_terms_of_use_link_2),
++                    stringResource(R.string.menu_terms_of_use),
+                 ),
+-            linkText = stringResource(R.string.onboarding_first_screen_terms_of_use_link_2),
++            linkText = stringResource(R.string.menu_terms_of_use),
+             onClick = termsOfServiceOnClick,
+         )
+ 
+         LinkText(
+             text =
+                 stringResource(
+-                    R.string.onboarding_first_screen_privacy_notice_text_2,
++                    R.string.blackdrift_onboarding_privacy_notice_text,
+                     stringResource(R.string.onboarding_first_screen_privacy_notice_link_2),
+                 ),
+             linkText = stringResource(R.string.onboarding_first_screen_privacy_notice_link_2),
+diff --git a/app/src/main/java/org/mozilla/focus/settings/MozillaSettingsFragment.kt b/app/src/main/java/org/mozilla/focus/settings/MozillaSettingsFragment.kt
+index c7a0094..33a8baa 100644
+--- a/app/src/main/java/org/mozilla/focus/settings/MozillaSettingsFragment.kt
++++ b/app/src/main/java/org/mozilla/focus/settings/MozillaSettingsFragment.kt
+@@ -23,7 +23,7 @@ class MozillaSettingsFragment : BaseSettingsFragment() {
+ 
+     override fun onResume() {
+         super.onResume()
+-        showToolbar(getString(R.string.preference_category_mozilla))
++        showToolbar(getString(R.string.menu_about))
+     }
+ 
+     override fun onPreferenceTreeClick(preference: Preference): Boolean {
+diff --git a/app/src/main/java/org/mozilla/focus/settings/SettingsScreen.kt b/app/src/main/java/org/mozilla/focus/settings/SettingsScreen.kt
+index fa1b42b..d2ad180 100644
+--- a/app/src/main/java/org/mozilla/focus/settings/SettingsScreen.kt
++++ b/app/src/main/java/org/mozilla/focus/settings/SettingsScreen.kt
+@@ -54,7 +54,7 @@ fun SettingsScreen(onSettingClick: (Screen.Settings.Page) -> Unit) {
+             onClick = { onSettingClick(Screen.Settings.Page.Advanced) },
+         )
+         SettingItem(
+-            title = R.string.preference_category_mozilla,
++            title = R.string.menu_about,
+             summary =
+                 stringResource(
+                     id = R.string.preference_mozilla_summary,
+diff --git a/app/src/main/res/layout/fragment_autocomplete_add_domain.xml b/app/src/main/res/layout/fragment_autocomplete_add_domain.xml
+index 43b2a2a..24e0285 100644
+--- a/app/src/main/res/layout/fragment_autocomplete_add_domain.xml
++++ b/app/src/main/res/layout/fragment_autocomplete_add_domain.xml
+@@ -37,6 +37,6 @@
+         android:layout_height="wrap_content"
+         android:paddingStart="8dp"
+         android:paddingEnd="8dp"
+-        android:text="@string/preference_autocomplete_add_example2" />
++        android:text="@string/blackdrift_autocomplete_add_example" />
+ 
+ </LinearLayout>
+\ No newline at end of file
+diff --git a/app/src/main/res/values/blackdrift_strings.xml b/app/src/main/res/values/blackdrift_strings.xml
+new file mode 100644
+index 0000000..8c790e6
+--- /dev/null
++++ b/app/src/main/res/values/blackdrift_strings.xml
+@@ -0,0 +1,32 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- This Source Code Form is subject to the terms of the Mozilla Public
++   - License, v. 2.0. If a copy of the MPL was not distributed with this
++   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
++<!-- Blackdrift-owned strings. They replace upstream translatable strings that hard-code
++     Mozilla, Firefox or Focus. They are English only on purpose: overriding the
++     upstream keys would leave ~100 values-*/strings.xml translations still saying
++     Mozilla. Kept in main (not src/focus) so Klar variants still compile. -->
++<resources xmlns:tools="http://schemas.android.com/tools">
++    <!-- About screen body; replaces about_content. %1$s is the app name. -->
++    <string name="blackdrift_about_content" translatable="false" tools:ignore="BrandUsage,IncorrectStraightDoubleQuote"><![CDATA[<p>%1$s puts you in control.</p>
++<p>Use it as a private browser:
++  <ul>
++    <li>Search and browse right in the app</li>
++    <li>Block trackers (or update settings to allow trackers)</li>
++    <li>Erase to delete cookies as well as search and browsing history</li>
++  </ul>
++</p>
++<p>Blackdrift is made by Sonicon. Blackdrift is based on Firefox Focus by Mozilla. Not affiliated with or endorsed by Mozilla.</p>]]></string>
++
++    <!-- Onboarding first screen; replaces onboarding_first_screen_privacy_notice_text_2.
++         %1$s is the (translated) "Privacy Notice" link text. -->
++    <string name="blackdrift_onboarding_privacy_notice_text" translatable="false">Blackdrift cares about your privacy. Learn more in our %1$s.</string>
++
++    <!-- Text-selection menu action in other apps; replaces text_selection_search_action_focus. -->
++    <string name="blackdrift_text_selection_search_action" translatable="false">Search in Blackdrift</string>
++
++    <!-- Autocomplete "add URL" hint; replaces preference_autocomplete_add_example2
++         ("Example: mozilla.org"). Upstream deleted the neutral
++         preference_autocomplete_add_example key after Firefox 150. -->
++    <string name="blackdrift_autocomplete_add_example" translatable="false">Example: example.com</string>
++</resources>

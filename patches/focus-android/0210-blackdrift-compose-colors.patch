@@ -1,0 +1,80 @@
+Blackdrift: set the Compose palette's pink and violet accents to Clean Slate.
+
+Why: Focus's Compose screens (About, radio-button lists, dialogs, onboarding)
+take colours from FocusColors in ui/theme/FocusTheme.kt, which hard-codes
+Photon values, so patch 0208's XML colour mapping cannot reach them. The About
+"Learn more" link, selected radio buttons and dialog controls (Photon Pink)
+become Drift blue (#2F6FD6 light, #7AA8F5 dark, the same values 0208 gives
+accentBright/focusContrastPink), the dark onboarding button (Violet50)
+becomes dark Drift blue, and the light Material surface (Violet05 lavender)
+becomes the Clean Slate surface white. This patch is hand-written: it is not
+produced by branding/scripts/apply-focus-colors.mjs, so regenerating 0208
+leaves it intact. It is part of the branding group (0200-0299) and
+touches only FocusTheme.kt, which no other patch changes.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/main/java/org/mozilla/focus/ui/theme/FocusTheme.kt b/app/src/main/java/org/mozilla/focus/ui/theme/FocusTheme.kt
+index 1505cc8c94..b9a47330e5 100644
+--- a/app/src/main/java/org/mozilla/focus/ui/theme/FocusTheme.kt
++++ b/app/src/main/java/org/mozilla/focus/ui/theme/FocusTheme.kt
+@@ -13,6 +13,7 @@ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.ReadOnlyComposable
+ import androidx.compose.runtime.staticCompositionLocalOf
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.platform.LocalDensity
+ import androidx.compose.ui.platform.LocalWindowInfo
+ import androidx.compose.ui.unit.dp
+@@ -67,19 +68,19 @@ val focusDimensions: FocusDimensions
+ private fun darkColorPalette(): FocusColors =
+     FocusColors(
+         material = darkColorSchemeMaterial(),
+-        dialogActiveControls = PhotonColors.Pink40,
++        dialogActiveControls = Color(0xFF7AA8F5), // Blackdrift: Drift blue
+         topSiteBackground = PhotonColors.Ink05,
+         topSiteFaviconText = PhotonColors.LightGrey05,
+         topSiteTitle = PhotonColors.LightGrey05,
+         menuBackground = PhotonColors.Ink05,
+         menuText = PhotonColors.White,
+         aboutPageText = PhotonColors.White,
+-        aboutPageLink = PhotonColors.Pink70,
+-        radioButtonSelected = PhotonColors.Pink70,
++        aboutPageLink = Color(0xFF7AA8F5), // Blackdrift: Drift blue
++        radioButtonSelected = Color(0xFF7AA8F5), // Blackdrift: Drift blue
+         toolbarColor = PhotonColors.White,
+         privacySecuritySettingsToolTip = PhotonColors.White,
+         onboardingKeyFeatureImageTint = PhotonColors.LightGrey05,
+-        onboardingButtonBackground = PhotonColors.Violet50,
++        onboardingButtonBackground = Color(0xFF7AA8F5), // Blackdrift: Drift blue
+         onboardingSemiBoldText = PhotonColors.LightGrey05,
+         onboardingNormalText = PhotonColors.LightGrey50,
+         settingsTextColor = PhotonColors.White,
+@@ -91,15 +92,15 @@ private fun darkColorPalette(): FocusColors =
+ private fun lightColorPalette(): FocusColors =
+     FocusColors(
+         material = lightColorSchemeMaterial(),
+-        dialogActiveControls = PhotonColors.Pink70,
++        dialogActiveControls = Color(0xFF2F6FD6), // Blackdrift: Drift blue
+         topSiteBackground = PhotonColors.White,
+         topSiteFaviconText = PhotonColors.Ink50,
+         topSiteTitle = PhotonColors.DarkGrey05,
+         menuBackground = PhotonColors.White,
+         menuText = PhotonColors.Black,
+         aboutPageText = PhotonColors.Black,
+-        aboutPageLink = PhotonColors.Pink70,
+-        radioButtonSelected = PhotonColors.Pink70,
++        aboutPageLink = Color(0xFF2F6FD6), // Blackdrift: Drift blue
++        radioButtonSelected = Color(0xFF2F6FD6), // Blackdrift: Drift blue
+         toolbarColor = PhotonColors.Black,
+         privacySecuritySettingsToolTip = PhotonColors.White,
+         settingsTextColor = PhotonColors.Black,
+@@ -125,7 +126,7 @@ private fun darkColorSchemeMaterial(): ColorScheme =
+ private fun lightColorSchemeMaterial(): ColorScheme =
+     lightColorScheme(
+         secondary = PhotonColors.LightGrey05,
+-        surface = PhotonColors.Violet05,
++        surface = Color(0xFFFFFFFF), // Blackdrift: Clean Slate surface
+         onSurface = PhotonColors.Ink50,
+         onBackground = PhotonColors.Ink50,
+         onPrimary = PhotonColors.Ink50,

@@ -1,0 +1,118 @@
+Blackdrift: point privacy, terms, help and support links at sonicon.org.
+
+Why: Focus links to Mozilla's privacy notice, terms of use, SUMO help
+articles and manifesto, which describe Mozilla's product, not Blackdrift. All of
+them live in SupportUtils, so one file changes:
+privacy -> https://sonicon.org/privacy-policy.html,
+terms -> https://sonicon.org/terms.html, and help, SUMO topics, safe browsing,
+default-browser help and the About "Learn more" -> https://sonicon.org.
+getMozillaPageUrl drops its unused locale parameter (no caller passes one);
+the SUMO helpers keep their parameters so their call sites need no patch.
+The now-unused locale and URL-encoding helpers and imports are removed.
+RATE_APP_URL/FOCUS_PLAY_STORE_URL already resolve to Blackdrift's own application
+ID; OPEN_WITH_DEFAULT_BROWSER_URL is an internal marker, never loaded.
+Focus 159 has no "What's new" link (checked again on 159.0.1).
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/main/java/org/mozilla/focus/utils/SupportUtils.kt b/app/src/main/java/org/mozilla/focus/utils/SupportUtils.kt
+index 95bc565..b0f1311 100644
+--- a/app/src/main/java/org/mozilla/focus/utils/SupportUtils.kt
++++ b/app/src/main/java/org/mozilla/focus/utils/SupportUtils.kt
+@@ -11,9 +11,6 @@ import androidx.browser.customtabs.CustomTabsIntent
+ import androidx.core.content.ContextCompat
+ import androidx.core.net.toUri
+ import androidx.fragment.app.FragmentActivity
+-import java.io.UnsupportedEncodingException
+-import java.net.URLEncoder
+-import java.util.Locale
+ import mozilla.components.browser.state.state.ExternalAppType
+ import mozilla.components.browser.state.state.SessionState
+ import mozilla.components.feature.customtabs.createCustomTabConfigFromIntent
+@@ -22,37 +19,30 @@ import org.mozilla.focus.BuildConfig
+ import org.mozilla.focus.R
+ import org.mozilla.focus.activity.CustomTabActivity
+ import org.mozilla.focus.ext.components
+-import org.mozilla.focus.locale.Locales
+ import org.mozilla.focus.state.AppAction
+ 
+ /** Utility class for support-related URLs and operations. */
+ object SupportUtils {
+-    const val HELP_URL = "https://support.mozilla.org/kb/what-firefox-focus-android"
++    const val BLACKDRIFT_SUPPORT_URL = "https://sonicon.org"
++    const val HELP_URL = BLACKDRIFT_SUPPORT_URL
+     const val FOCUS_PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=${BuildConfig.APPLICATION_ID}"
+     const val RATE_APP_URL = "market://details?id=" + BuildConfig.APPLICATION_ID
+-    const val DEFAULT_BROWSER_URL = "https://support.mozilla.org/kb/set-firefox-focus-default-browser-android"
+-    const val PRIVACY_NOTICE_URL = "https://www.mozilla.org/privacy/firefox-focus/"
+-    const val TERMS_OF_USE_URL = "https://www.mozilla.org/about/legal/terms/firefox-focus/"
++    const val DEFAULT_BROWSER_URL = BLACKDRIFT_SUPPORT_URL
++    const val PRIVACY_NOTICE_URL = "https://sonicon.org/privacy-policy.html"
++    const val TERMS_OF_USE_URL = "https://sonicon.org/terms.html"
+ 
+     const val OPEN_WITH_DEFAULT_BROWSER_URL = "https://www.mozilla.org/openGeneralSettings" // Fake URL
+     val manifestoURL: String
+-        get() {
+-            val langTag = Locales.getLanguageTag(Locale.getDefault())
+-            return "https://www.mozilla.org/$langTag/about/manifesto/"
+-        }
++        get() = BLACKDRIFT_SUPPORT_URL
+ 
+     /** Paths for specific pages on the Mozilla website. */
+     enum class MozillaPage(internal val path: String) {
+-        PRIVATE_NOTICE("privacy/firefox-focus/"),
+-        TERMS_OF_SERVICE("about/legal/terms/firefox-focus/"),
++        PRIVATE_NOTICE(PRIVACY_NOTICE_URL),
++        TERMS_OF_SERVICE(TERMS_OF_USE_URL),
+     }
+ 
+-    /** Returns the localised URL for a given [page]. */
+-    fun getMozillaPageUrl(page: MozillaPage, locale: Locale = Locale.getDefault()): String {
+-        val path = page.path
+-        val langTag = Locales.getLanguageTag(locale)
+-        return "https://www.mozilla.org/$langTag/$path"
+-    }
++    /** Returns the URL for a given [page]. Blackdrift: sonicon.org pages are not localised. */
++    fun getMozillaPageUrl(page: MozillaPage): String = page.path
+ 
+     /** Topics available on Mozilla Support (SUMO). */
+     enum class SumoTopic(
+@@ -68,33 +58,15 @@ object SupportUtils {
+     }
+ 
+     /** Returns a generic Mozilla Support (SUMO) URL for the given [topic]. */
+-    fun getGenericSumoURLForTopic(topic: SumoTopic): String {
+-        val escapedTopic = getEncodedTopicUTF8(topic.topicStr)
+-        val langTag = Locales.getLanguageTag(Locale.getDefault())
+-        return "https://support.mozilla.org/$langTag/kb/$escapedTopic"
+-    }
++    // Blackdrift: every SUMO topic opens the Blackdrift support site. The parameters of this and
++    // getSumoURLForTopic stay so their call sites need no patch.
++    fun getGenericSumoURLForTopic(topic: SumoTopic): String = BLACKDRIFT_SUPPORT_URL
+ 
+     /** Returns the SUMO URL for a specific topic */
+-    fun getSumoURLForTopic(appVersion: String, topic: SumoTopic): String {
+-        val escapedTopic = getEncodedTopicUTF8(topic.topicStr)
+-        val osTarget = "Android"
+-        val langTag = Locales.getLanguageTag(Locale.getDefault())
+-        return "https://support.mozilla.org/1/mobile/$appVersion/$osTarget/$langTag/$escapedTopic"
+-    }
++    fun getSumoURLForTopic(appVersion: String, topic: SumoTopic): String = BLACKDRIFT_SUPPORT_URL
+ 
+     /** Returns the Mozilla Support (SUMO) URL for safe browsing. */
+-    fun getSafeBrowsingURL(): String {
+-        val langTag = Locales.getLanguageTag(Locale.getDefault())
+-        return "https://support.mozilla.org/$langTag/kb/how-does-phishing-and-malware-protection-work"
+-    }
+-
+-    private fun getEncodedTopicUTF8(topic: String): String {
+-        try {
+-            return URLEncoder.encode(topic, "UTF-8")
+-        } catch (e: UnsupportedEncodingException) {
+-            throw IllegalStateException("utf-8 should always be available", e)
+-        }
+-    }
++    fun getSafeBrowsingURL(): String = BLACKDRIFT_SUPPORT_URL
+ 
+     /** Returns the version name of this package or an empty string if versionName is null. */
+     fun getAppVersion(context: Context): String {

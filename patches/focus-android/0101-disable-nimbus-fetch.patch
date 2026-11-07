@@ -1,0 +1,134 @@
+Blackdrift: the app's Nimbus does not fetch experiments from Mozilla.
+
+Why: the app's Nimbus (application-services) downloads experiment and rollout recipes from Mozilla's Remote
+Settings collection "nimbus-mobile-experiments" (or "nimbus-preview") on
+every launch, even though BuildConfig.NIMBUS_ENDPOINT is null. Blackdrift does
+not take part in Mozilla experiments, and remote recipes could change app
+behaviour without a Blackdrift release. Nimbus is given no server settings
+(createNimbus() no longer takes the Remote Settings service), and
+finishNimbusInitialization(), whose only job was fetchExperiments(), is
+removed together with its call in FocusApplication.finishSetupMegazord().
+Nimbus uses only the feature defaults compiled into nimbus.fml.yaml and the
+bundled R.raw.initial_experiments. FocusNimbus feature lookups keep working.
+
+This covers only the app side. GeckoView has its own Remote Settings
+client, which downloaded Gecko's experiment and messaging collections
+(nimbus-desktop-experiments and others) in the startup changesets bundle;
+patch tree/0001-no-gecko-experiment-sync stops that. Remote Settings stays
+on for its other collections (for example search configuration); see
+blackdrift/README.md "Telemetry".
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/main/java/org/mozilla/focus/Components.kt b/app/src/main/java/org/mozilla/focus/Components.kt
+index 167246d..cc1b39d 100644
+--- a/app/src/main/java/org/mozilla/focus/Components.kt
++++ b/app/src/main/java/org/mozilla/focus/Components.kt
+@@ -291,7 +291,7 @@ class Components(
+     }
+ 
+     val experiments: NimbusApi by lazy {
+-        createNimbus(context, BuildConfig.NIMBUS_ENDPOINT, remoteSettingsService.remoteSettingsService)
++        createNimbus(context, BuildConfig.NIMBUS_ENDPOINT)
+     }
+ 
+     val adsTelemetry: AdsTelemetry by lazy { AdsTelemetry() }
+diff --git a/app/src/main/java/org/mozilla/focus/FocusApplication.kt b/app/src/main/java/org/mozilla/focus/FocusApplication.kt
+index e44b2be..fcebf69 100644
+--- a/app/src/main/java/org/mozilla/focus/FocusApplication.kt
++++ b/app/src/main/java/org/mozilla/focus/FocusApplication.kt
+@@ -36,7 +36,6 @@ import mozilla.components.support.remotesettings.GlobalRemoteSettingsDependencyP
+ import mozilla.components.support.rusthttp.RustHttpConfig
+ import mozilla.components.support.webextensions.WebExtensionSupport
+ import org.mozilla.focus.biometrics.LockObserver
+-import org.mozilla.focus.experiments.finishNimbusInitialization
+ import org.mozilla.focus.ext.settings
+ import org.mozilla.focus.navigation.StoreLink
+ import org.mozilla.focus.nimbus.FocusNimbus
+@@ -255,11 +254,8 @@ open class FocusApplication : Application(), Provider {
+         // requests.
+         @Suppress("Deprecation") RustHttpConfig.setClient(lazy { components.client.unwrap() })
+ 
+-        applicationScope.launch(dispatcher) {
+-            // Now viaduct (the RustHttp client) is initialized we can ask Nimbus to fetch
+-            // experiments recipes from the server.
+-            finishNimbusInitialization(components.experiments)
+-        }
++        // Blackdrift: no Nimbus experiment fetch once viaduct is ready (patch 0011), so nothing
++        // is launched on [dispatcher]; the parameter stays for TestFocusApplication.
+     }
+ 
+     private fun initializeRemoteSettingsSupport() {
+diff --git a/app/src/main/java/org/mozilla/focus/experiments/NimbusSetup.kt b/app/src/main/java/org/mozilla/focus/experiments/NimbusSetup.kt
+index 7ab8291..ab5613b 100644
+--- a/app/src/main/java/org/mozilla/focus/experiments/NimbusSetup.kt
++++ b/app/src/main/java/org/mozilla/focus/experiments/NimbusSetup.kt
+@@ -5,13 +5,11 @@
+ package org.mozilla.focus.experiments
+ 
+ import android.content.Context
+-import mozilla.appservices.remotesettings.RemoteSettingsService
+ import mozilla.components.service.nimbus.NimbusApi
+ import mozilla.components.service.nimbus.NimbusAppInfo
+ import mozilla.components.service.nimbus.NimbusBuilder
+ import mozilla.components.support.base.log.logger.Logger
+ import org.json.JSONObject
+-import org.mozilla.experiments.nimbus.NimbusInterface
+ import org.mozilla.experiments.nimbus.internal.NimbusException
+ import org.mozilla.experiments.nimbus.internal.NimbusServerSettings
+ import org.mozilla.focus.BuildConfig
+@@ -29,7 +27,7 @@ import org.mozilla.focus.nimbus.FocusNimbus
+ private const val TIME_OUT_LOADING_EXPERIMENT_FROM_DISK_MS = 200L
+ 
+ /** Create the Nimbus singleton object for the Focus/Klar apps. */
+-fun createNimbus(context: Context, urlString: String?, remoteSettingsService: RemoteSettingsService?): NimbusApi {
++fun createNimbus(context: Context, urlString: String?): NimbusApi {
+     val isAppFirstRun = context.settings.isFirstRun
+ 
+     // These values can be used in the JEXL expressions when targeting experiments.
+@@ -60,17 +58,9 @@ fun createNimbus(context: Context, urlString: String?, remoteSettingsService: Re
+             customTargetingAttributes = customTargetingAttributes,
+         )
+ 
+-    val serverSettings: NimbusServerSettings? = remoteSettingsService?.let { service ->
+-        NimbusServerSettings(
+-            rsService = service,
+-            collectionName =
+-                if (context.settings.shouldUseNimbusPreview) {
+-                    "nimbus-preview"
+-                } else {
+-                    "nimbus-mobile-experiments"
+-                },
+-        )
+-    }
++    // Blackdrift: no experiment server. Nimbus runs only on the bundled defaults and
++    // R.raw.initial_experiments.
++    val serverSettings: NimbusServerSettings? = null
+ 
+     return NimbusBuilder(context)
+         .apply {
+@@ -90,24 +80,6 @@ fun createNimbus(context: Context, urlString: String?, remoteSettingsService: Re
+         .build(appInfo, serverSettings)
+ }
+ 
+-internal fun finishNimbusInitialization(experiments: NimbusApi) = experiments.run {
+-    // We fetch experiments in all cases,
+-    if (context.settings.isFirstRun) {
+-        // … however on first run, we immediately apply pending experiments.
+-        // We also want to measure how long this will take, with Glean.
+-        register(
+-            object : NimbusInterface.Observer {
+-                override fun onExperimentsFetched() {
+-                    applyPendingExperiments()
+-                    // Remove lingering observer when we're done fetching experiments on startup.
+-                    unregister(this)
+-                }
+-            }
+-        )
+-    }
+-    fetchExperiments()
+-}
+-
+ /** Returns the app name used for Nimbus experimentation. */
+ fun getNimbusAppName(): String {
+     return if (BuildConfig.FLAVOR.contains("focus")) {

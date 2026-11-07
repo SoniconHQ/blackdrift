@@ -1,0 +1,117 @@
+Blackdrift: install as org.sonicon.browser instead of org.mozilla.focus.
+
+Why: Blackdrift must not share an application ID with Mozilla Firefox Focus, so it
+can be installed side by side with the real app and never receives its updates,
+data, or Play Store identity. Only the applicationId changes; the Kotlin
+namespace and source package stay org.mozilla.focus to keep this patch small.
+The flavor-level applicationId replaces defaultConfig "org.mozilla" + ".focus";
+build-type suffixes still apply, so focusDebug installs as
+org.sonicon.browser.debug and focusRelease as org.sonicon.browser. Klar is untouched.
+
+The static launcher shortcuts hardcode their targetPackage per variant, so they
+must follow the new ID or long-press shortcuts would launch (or fail to find)
+the real Focus app.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/build.gradle b/app/build.gradle
+index 902c60c..3be908f 100644
+--- a/app/build.gradle
++++ b/app/build.gradle
+@@ -132,7 +132,7 @@ android {
+         focus {
+             dimension "product"
+ 
+-            applicationIdSuffix ".focus"
++            applicationId "org.sonicon.browser"
+ 
+             // This is used when the user selects text in other third-party apps. See https://github.com/mozilla-mobile/focus-android/issues/6478
+             manifestPlaceholders = [textSelectionSearchAction: "@string/text_selection_search_action_focus"]
+diff --git a/app/src/focusBeta/res/xml-v25/shortcuts.xml b/app/src/focusBeta/res/xml-v25/shortcuts.xml
+index daaece8..5b29b3a 100644
+--- a/app/src/focusBeta/res/xml-v25/shortcuts.xml
++++ b/app/src/focusBeta/res/xml-v25/shortcuts.xml
+@@ -11,7 +11,7 @@
+         android:shortcutLongLabel="@string/shortcut_erase_long_label">
+         <intent
+             android:action="erase"
+-            android:targetPackage="org.mozilla.focus.beta"
++            android:targetPackage="org.sonicon.browser.beta"
+             android:targetClass="org.mozilla.focus.activity.EraseShortcutActivity">
+                 <extra android:name="shortcut" android:value="true" />
+         </intent>
+@@ -23,7 +23,7 @@
+       android:shortcutShortLabel="@string/shortcut_erase_and_open_short_label">
+     <intent
+         android:action="erase"
+-        android:targetPackage="org.mozilla.focus.beta"
++        android:targetPackage="org.sonicon.browser.beta"
+         android:targetClass="org.mozilla.focus.activity.EraseAndOpenShortcutActivity">
+       <extra android:name="shortcut" android:value="true" />
+     </intent>
+diff --git a/app/src/focusDebug/res/xml/shortcuts.xml b/app/src/focusDebug/res/xml/shortcuts.xml
+index d9c6f9e..8f48dfb 100644
+--- a/app/src/focusDebug/res/xml/shortcuts.xml
++++ b/app/src/focusDebug/res/xml/shortcuts.xml
+@@ -11,7 +11,7 @@
+         android:shortcutLongLabel="@string/shortcut_erase_long_label">
+         <intent
+             android:action="erase"
+-            android:targetPackage="org.mozilla.focus.debug"
++            android:targetPackage="org.sonicon.browser.debug"
+             android:targetClass="org.mozilla.focus.activity.EraseShortcutActivity">
+                 <extra android:name="shortcut" android:value="true" />
+         </intent>
+@@ -23,7 +23,7 @@
+       android:shortcutShortLabel="@string/shortcut_erase_and_open_short_label">
+     <intent
+         android:action="erase"
+-        android:targetPackage="org.mozilla.focus.debug"
++        android:targetPackage="org.sonicon.browser.debug"
+         android:targetClass="org.mozilla.focus.activity.EraseAndOpenShortcutActivity">
+       <extra android:name="shortcut" android:value="true" />
+     </intent>
+diff --git a/app/src/focusNightly/res/xml-v25/shortcuts.xml b/app/src/focusNightly/res/xml-v25/shortcuts.xml
+index c5524df..5116868 100644
+--- a/app/src/focusNightly/res/xml-v25/shortcuts.xml
++++ b/app/src/focusNightly/res/xml-v25/shortcuts.xml
+@@ -11,7 +11,7 @@
+         android:shortcutLongLabel="@string/shortcut_erase_long_label">
+         <intent
+             android:action="erase"
+-            android:targetPackage="org.mozilla.focus.nightly"
++            android:targetPackage="org.sonicon.browser.nightly"
+             android:targetClass="org.mozilla.focus.activity.EraseShortcutActivity">
+                 <extra android:name="shortcut" android:value="true" />
+         </intent>
+@@ -23,7 +23,7 @@
+       android:shortcutShortLabel="@string/shortcut_erase_and_open_short_label">
+     <intent
+         android:action="erase"
+-        android:targetPackage="org.mozilla.focus.nightly"
++        android:targetPackage="org.sonicon.browser.nightly"
+         android:targetClass="org.mozilla.focus.activity.EraseAndOpenShortcutActivity">
+       <extra android:name="shortcut" android:value="true" />
+     </intent>
+diff --git a/app/src/focusRelease/res/xml-v25/shortcuts.xml b/app/src/focusRelease/res/xml-v25/shortcuts.xml
+index c1f98fe..034f174 100644
+--- a/app/src/focusRelease/res/xml-v25/shortcuts.xml
++++ b/app/src/focusRelease/res/xml-v25/shortcuts.xml
+@@ -11,7 +11,7 @@
+         android:shortcutLongLabel="@string/shortcut_erase_long_label">
+         <intent
+             android:action="erase"
+-            android:targetPackage="org.mozilla.focus"
++            android:targetPackage="org.sonicon.browser"
+             android:targetClass="org.mozilla.focus.activity.EraseShortcutActivity">
+                 <extra android:name="shortcut" android:value="true" />
+         </intent>
+@@ -23,7 +23,7 @@
+       android:shortcutShortLabel="@string/shortcut_erase_and_open_short_label">
+     <intent
+         android:action="erase"
+-        android:targetPackage="org.mozilla.focus"
++        android:targetPackage="org.sonicon.browser"
+         android:targetClass="org.mozilla.focus.activity.EraseAndOpenShortcutActivity">
+       <extra android:name="shortcut" android:value="true" />
+     </intent>

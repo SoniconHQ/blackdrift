@@ -1,0 +1,171 @@
+Blackdrift: give Glean no network uploader and never start usage reporting.
+
+Why: 0100-0102 switch telemetry off through flags (Glean uploadEnabled =
+false, the two usage pings disabled, no crash services, no Nimbus server),
+but Glean still holds a working HTTP uploader. Any ping that does not follow
+the upload flag would still be sent through it: the usage-reporting and
+usage-deletion-request pings (follows_collection_enabled: false, kept off
+only by setEnabled(false) in 0100), Glean's built-in deletion-request ping,
+and any such ping a future upstream or library pings.yaml adds. This patch
+closes the transport itself:
+
+- Glean gets NoUploadPingUploader, which never opens a connection and
+  answers every ping with Incapable, so Glean drops it. Nothing Glean
+  records can leave the device, whatever a ping's flags say.
+- the usage-reporting service is never started at launch, and
+  Settings.isDailyUsagePingEnabled is always false, so a value stored by an
+  older build is ignored and no usage profile id is generated.
+- DailyUsageReportingSwitchPreference, the only other caller of the
+  service's start(), is deleted; 0100 already removed it from the settings
+  screen.
+- Nimbus is created with no endpoint URL even when a .nimbus file exists at
+  build time (0101 already removes its server settings and the fetch).
+
+Covered already and unchanged here: crash upload and the send-report box
+(0102), the Data choices and Crashes settings (0100, 0102), and the Nimbus
+experiment fetch (0101).
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/main/java/org/mozilla/focus/Components.kt b/app/src/main/java/org/mozilla/focus/Components.kt
+index 4897771..47d3086 100644
+--- a/app/src/main/java/org/mozilla/focus/Components.kt
++++ b/app/src/main/java/org/mozilla/focus/Components.kt
+@@ -291,7 +291,8 @@ class Components(
+     }
+ 
+     val experiments: NimbusApi by lazy {
+-        createNimbus(context, BuildConfig.NIMBUS_ENDPOINT)
++        // Blackdrift: no experiment server URL, even if a .nimbus file exists at build time.
++        createNimbus(context, urlString = null)
+     }
+ 
+     val adsTelemetry: AdsTelemetry by lazy { AdsTelemetry() }
+diff --git a/app/src/main/java/org/mozilla/focus/FocusApplication.kt b/app/src/main/java/org/mozilla/focus/FocusApplication.kt
+index fcebf69..20be4ba 100644
+--- a/app/src/main/java/org/mozilla/focus/FocusApplication.kt
++++ b/app/src/main/java/org/mozilla/focus/FocusApplication.kt
+@@ -225,9 +225,7 @@ open class FocusApplication : Application(), Provider {
+     protected open fun initializeTelemetry() {
+         components.metrics.initialize(this)
+         FactsProcessor.initialize()
+-        if (components.settings.isDailyUsagePingEnabled) {
+-            components.usageReportingMetricsService.start()
+-        }
++        // Blackdrift: the usage-reporting service is never started (no usage ping, no usage profile id).
+     }
+ 
+     /**
+diff --git a/app/src/main/java/org/mozilla/focus/telemetry/GleanMetricsService.kt b/app/src/main/java/org/mozilla/focus/telemetry/GleanMetricsService.kt
+index f5bb6d2..921809f 100644
+--- a/app/src/main/java/org/mozilla/focus/telemetry/GleanMetricsService.kt
++++ b/app/src/main/java/org/mozilla/focus/telemetry/GleanMetricsService.kt
+@@ -22,7 +22,6 @@ import mozilla.components.browser.state.state.selectedOrDefaultSearchEngine
+ import mozilla.components.feature.search.ext.waitForSelectedOrDefaultSearchEngine
+ import mozilla.components.feature.search.telemetry.SearchProviderModel
+ import mozilla.components.feature.search.telemetry.SerpTelemetryRepository
+-import mozilla.components.service.glean.net.ConceptFetchHttpUploader
+ import mozilla.components.support.base.log.logger.Logger
+ import mozilla.components.support.utils.Browsers
+ import mozilla.telemetry.glean.Glean
+@@ -124,12 +123,8 @@ class GleanMetricsService(
+             configuration =
+                 Configuration(
+                     channel = BuildConfig.FLAVOR,
+-                    httpClient =
+-                        ConceptFetchHttpUploader(
+-                            client = lazy(LazyThreadSafetyMode.NONE) { components.client },
+-                            usePrivateRequest = true,
+-                            supportsOhttp = true,
+-                        ),
++                    // Blackdrift: every Glean ping is dropped on the device, whatever its upload flags.
++                    httpClient = NoUploadPingUploader,
+                 ),
+             buildInfo = GleanBuildInfo.buildInfo,
+         )
+diff --git a/app/src/main/java/org/mozilla/focus/telemetry/NoUploadPingUploader.kt b/app/src/main/java/org/mozilla/focus/telemetry/NoUploadPingUploader.kt
+new file mode 100644
+index 0000000..4830f69
+--- /dev/null
++++ b/app/src/main/java/org/mozilla/focus/telemetry/NoUploadPingUploader.kt
+@@ -0,0 +1,19 @@
++/* This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
++
++package org.mozilla.focus.telemetry
++
++import mozilla.components.service.glean.net.PingUploader
++import mozilla.telemetry.glean.net.CapablePingUploadRequest
++import mozilla.telemetry.glean.net.Incapable
++import mozilla.telemetry.glean.net.UploadResult
++
++/**
++ * Blackdrift: Glean uploader that never opens a connection. Every ping Glean hands
++ * it is reported as not uploadable (the same result ConceptFetchHttpUploader
++ * returns when it cannot send a request), so Glean discards it.
++ */
++object NoUploadPingUploader : PingUploader {
++    override fun upload(request: CapablePingUploadRequest): UploadResult = Incapable(0)
++}
+diff --git a/app/src/main/java/org/mozilla/focus/utils/Settings.kt b/app/src/main/java/org/mozilla/focus/utils/Settings.kt
+index b4a4b97..59592a6 100644
+--- a/app/src/main/java/org/mozilla/focus/utils/Settings.kt
++++ b/app/src/main/java/org/mozilla/focus/utils/Settings.kt
+@@ -322,12 +322,8 @@ class Settings(private val context: Context) : PreferencesHolder {
+     }
+ 
+     /** Determines whether the daily usage ping for telemetry is enabled. */
+-    var isDailyUsagePingEnabled by
+-        booleanPreference(
+-            getPreferenceKey(R.string.pref_key_daily_usage_ping),
+-            default = false, // Blackdrift: the daily usage ping is never sent.
+-            persistDefaultIfNotExists = true,
+-        )
++    val isDailyUsagePingEnabled: Boolean
++        get() = false // Blackdrift: never sent; a value stored by an older build is ignored.
+ 
+     /** Indicates if the data left behind by the removed cookie banner feature has been deleted. */
+     private var hasDeletedCookieBannerData by
+diff --git a/app/src/main/java/org/mozilla/focus/widget/DailyUsageReportingSwitchPreference.kt b/app/src/main/java/org/mozilla/focus/widget/DailyUsageReportingSwitchPreference.kt
+deleted file mode 100644
+index 15f529c..e69de29
+--- a/app/src/main/java/org/mozilla/focus/widget/DailyUsageReportingSwitchPreference.kt
++++ /dev/null
+@@ -1,36 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.focus.widget
+-
+-import android.content.Context
+-import android.util.AttributeSet
+-import org.mozilla.focus.ext.components
+-import org.mozilla.focus.settings.LearnMoreSwitchPreference
+-import org.mozilla.focus.utils.SupportUtils
+-
+-/** Switch preference for enabling/disabling telemetry */
+-internal class DailyUsageReportingSwitchPreference(context: Context, attrs: AttributeSet?) :
+-    LearnMoreSwitchPreference(context, attrs) {
+-
+-    init {
+-        isChecked = context.components.settings.isDailyUsagePingEnabled
+-    }
+-
+-    override fun onClick() {
+-        super.onClick()
+-        if (isChecked) {
+-            context.components.usageReportingMetricsService.start()
+-        } else {
+-            context.components.usageReportingMetricsService.stop()
+-        }
+-    }
+-
+-    override fun getLearnMoreUrl(): String {
+-        return SupportUtils.getSumoURLForTopic(
+-            SupportUtils.getAppVersion(context),
+-            SupportUtils.SumoTopic.USAGE_PING_SETTINGS,
+-        )
+-    }
+-}

@@ -1,0 +1,83 @@
+Blackdrift: turn off crash reporting to Mozilla.
+
+Why: upstream Focus sends crash reports to Mozilla Socorro (and to Sentry
+when a .sentry_token exists at build time). After a crash it prompts the
+user, and the tab-crash screen has a pre-ticked "send crash report" box.
+Blackdrift sends no data to Mozilla, so:
+
+- the CrashReporter gets no upload services and enabled = false, so it
+  stores no crash in its database and never prompts for or uploads a
+  report, for uncaught exceptions and for Gecko crashes alike. Caught
+  exceptions submitted by Nimbus or application-services go to an empty
+  service list. The Glean crash service stays in telemetryServices only
+  to satisfy CrashReporter's "at least one service" check; Glean upload
+  is off (0100).
+- Gecko itself still writes a minidump and a .extra file (with the page
+  URL) into files/mozilla/Crash Reports/pending/ when a process crashes:
+  GeckoView needs the dump to report a content crash as a crash and show
+  the tab-crash screen. This patch does not touch those files; 0106
+  deletes them on start, after a tab crash and on erase.
+- the tab-crash screen still offers "Close tab" to recover, but hides the
+  "send crash report" box and leaves it unticked.
+- Settings > About no longer lists "Crashes". With the reporter disabled
+  no crash is ever stored, so the list would always be empty, and with no
+  services it has no report links. about:crashes still opens it (empty).
+
+Uncaught exceptions still reach the default Android handler, so the
+platform's own crash handling is unchanged.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/main/java/org/mozilla/focus/Components.kt b/app/src/main/java/org/mozilla/focus/Components.kt
+index cc1b39d..4897771 100644
+--- a/app/src/main/java/org/mozilla/focus/Components.kt
++++ b/app/src/main/java/org/mozilla/focus/Components.kt
+@@ -375,7 +375,8 @@ private fun createCrashReporter(context: Context): CrashReporter {
+ 
+     return CrashReporter(
+         context = context,
+-        services = services,
++        // Blackdrift: no crash upload service (Socorro/Sentry); reports never leave the device.
++        services = emptyList(),
+         telemetryServices =
+             listOf(
+                 GleanCrashReporterService(
+@@ -390,8 +391,8 @@ private fun createCrashReporter(context: Context): CrashReporter {
+             ),
+         promptConfiguration =
+             CrashReporter.PromptConfiguration(appName = context.resources.getString(R.string.app_name)),
+-        shouldPrompt = CrashReporter.Prompt.ALWAYS,
+-        enabled = true,
++        shouldPrompt = CrashReporter.Prompt.NEVER,
++        enabled = false, // Blackdrift: crash reporting is off.
+         nonFatalCrashIntent = pendingIntent,
+     )
+ }
+diff --git a/app/src/main/res/layout/fragment_crash_reporter.xml b/app/src/main/res/layout/fragment_crash_reporter.xml
+index 710591f..0cbb40e 100644
+--- a/app/src/main/res/layout/fragment_crash_reporter.xml
++++ b/app/src/main/res/layout/fragment_crash_reporter.xml
+@@ -58,7 +58,8 @@
+         android:layout_height="32dp"
+         android:layout_marginBottom="24dp"
+         android:buttonTint="@color/colorCrashAccent"
+-        android:checked="true"
++        android:checked="false"
++        android:visibility="gone"
+         android:text="@string/crash_report_send_crash_label"
+         android:textColor="@android:color/black"
+         android:textSize="15sp"
+diff --git a/app/src/main/res/xml/mozilla_settings.xml b/app/src/main/res/xml/mozilla_settings.xml
+index efa1572..3575393 100644
+--- a/app/src/main/res/xml/mozilla_settings.xml
++++ b/app/src/main/res/xml/mozilla_settings.xml
+@@ -41,9 +41,4 @@
+         android:layout="@layout/focus_preference_new_tab"
+         android:title="@string/preference_libraries_we_use" />
+ 
+-    <androidx.preference.Preference
+-        android:key="@string/pref_key_crash_reports"
+-        android:layout="@layout/focus_preference_new_tab"
+-        android:title="@string/preference_crashes" />
+-
+ </androidx.preference.PreferenceScreen>

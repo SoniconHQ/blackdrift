@@ -1,0 +1,41 @@
+Blackdrift: stop offering "Download Firefox" in the "Open in..." list.
+
+Why: when no Firefox-branded browser is installed, Focus appends an install
+banner for Firefox to the "Open in..." sheet. Blackdrift should not promote
+Mozilla's product, so the app-store entry is always null; installed browsers
+are still listed.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/main/java/org/mozilla/focus/fragment/BrowserFragment.kt b/app/src/main/java/org/mozilla/focus/fragment/BrowserFragment.kt
+index 9013018..b380039 100644
+--- a/app/src/main/java/org/mozilla/focus/fragment/BrowserFragment.kt
++++ b/app/src/main/java/org/mozilla/focus/fragment/BrowserFragment.kt
+@@ -73,7 +73,6 @@ import org.mozilla.focus.GleanMetrics.OpenWith
+ import org.mozilla.focus.GleanMetrics.TabCount
+ import org.mozilla.focus.GleanMetrics.TrackingProtection
+ import org.mozilla.focus.R
+-import org.mozilla.focus.activity.FirefoxInstallationHelper
+ import org.mozilla.focus.activity.MainActivity
+ import org.mozilla.focus.browser.integration.BrowserToolbarIntegration
+ import org.mozilla.focus.browser.integration.FindInPageIntegration
+@@ -983,18 +982,11 @@ class BrowserFragment : BaseFragment(), UserInteractionHandler, AccessibilityMan
+         val browsers = Browsers.forUrl(requireContext(), tab.content.url)
+ 
+         val apps = browsers.installedBrowsers.filterNot { it.packageName == requireContext().packageName }
+-        val store =
+-            if (browsers.hasFirefoxBrandedBrowserInstalled) {
+-                null
+-            } else {
+-                FirefoxInstallationHelper.resolveAppStore(requireContext())
+-            }
+-
+         val fragment =
+             OpenWithFragment.newInstance(
+                 apps.toTypedArray(),
+                 tab.content.url,
+-                store,
++                store = null, // Blackdrift: never offer "Download Firefox" in the "Open in…" list.
+             )
+         fragment.show(getParentFragmentManager(), OpenWithFragment.FRAGMENT_TAG)
+ 

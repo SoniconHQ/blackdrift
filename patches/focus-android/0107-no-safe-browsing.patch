@@ -1,0 +1,389 @@
+Blackdrift: Safe Browsing is off and the settings no longer offer it.
+
+Why: Blackdrift is built without a Google Safe Browsing API key (AppConstants
+MOZ_GOOGLE_SAFEBROWSING_API_KEY is the placeholder), so Gecko's
+SafeBrowsing.sys.mjs clears the update and gethash URLs of the google,
+google4 and google5 providers. No malware or phishing list is ever
+downloaded, and the switch "Block potentially dangerous and deceptive
+sites" protected nothing while claiming it did.
+
+- Settings.shouldUseSafeBrowsing() always returns false, so
+  EngineProvider.setupSafeBrowsing() sets SafeBrowsingPolicy.NONE on every
+  engine start (GeckoEngine itself starts at RECOMMENDED). The stored
+  "pref_safe_browsing" value is no longer read, so a user upgrading from a
+  build where it was true (the default) also gets NONE.
+- The switch, its SafeBrowsingSwitchPreference class, its preference key,
+  the settings-change listener and telemetry branches and the English
+  title and summary are removed. Translations keep their now-unused
+  strings (lint ExtraTranslation is ignored); SupportUtils.
+  getSafeBrowsingURL() stays because patch 0204 rewrites it.
+- The instrumented SafeBrowsingTest is deleted and SettingsPrivacyMenuRobot
+  no longer looks for the switch.
+
+Tracking protection is untouched: it uses the Mozilla provider and the
+*-track-digest256 lists, configured through the tracking protection
+policy, not the Safe Browsing categories. GeckoView's
+ContentBlocking.Settings.setSafeBrowsingProviders() is left at its
+default: with no API key and the categories at NONE the google providers
+do nothing, and clearing them would only change runtime prefs that cannot
+be checked without a device.
+
+Cut against: mozilla-firefox/firefox@6181e6b5f28a8fbae1d5c3ef6f6626b5a2180213 (Firefox 159.0.1).
+
+diff --git a/app/src/androidTest/java/org/mozilla/focus/activity/SafeBrowsingTest.kt b/app/src/androidTest/java/org/mozilla/focus/activity/SafeBrowsingTest.kt
+deleted file mode 100644
+index 63809a9fec..e69de29bb2
+--- a/app/src/androidTest/java/org/mozilla/focus/activity/SafeBrowsingTest.kt
++++ /dev/null
+@@ -1,139 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-package org.mozilla.focus.activity
+-
+-import mozilla.components.browser.errorpages.R as errorpagesR
+-import org.junit.After
+-import org.junit.Before
+-import org.junit.Rule
+-import org.junit.Test
+-import org.mozilla.focus.activity.robots.homeScreen
+-import org.mozilla.focus.activity.robots.searchScreen
+-import org.mozilla.focus.helpers.FeatureSettingsHelper
+-import org.mozilla.focus.helpers.FocusTestRule
+-import org.mozilla.focus.helpers.MainActivityFirstrunTestRule
+-import org.mozilla.focus.helpers.TestHelper.exitToTop
+-import org.mozilla.focus.helpers.TestHelper.getStringResource
+-import org.mozilla.focus.testAnnotations.SmokeTest
+-
+-// These tests verify the Safe Browsing feature by visiting unsafe URLs and checking they are blocked
+-class SafeBrowsingTest {
+-    private val malwareWarning =
+-        getStringResource(errorpagesR.string.mozac_browser_errorpages_safe_browsing_malware_uri_title)
+-    private val phishingWarning = getStringResource(errorpagesR.string.mozac_browser_errorpages_safe_phishing_uri_title)
+-    private val unwantedSoftwareWarning =
+-        getStringResource(errorpagesR.string.mozac_browser_errorpages_safe_browsing_unwanted_uri_title)
+-    private val harmfulSiteWarning =
+-        getStringResource(errorpagesR.string.mozac_browser_errorpages_safe_harmful_uri_title)
+-    private val tryAgainButton = getStringResource(errorpagesR.string.mozac_browser_errorpages_page_refresh)
+-    private val featureSettingsHelper = FeatureSettingsHelper()
+-
+-    @get:Rule(order = 0) val focusTestRule: FocusTestRule = FocusTestRule()
+-
+-    @get:Rule val mActivityTestRule = MainActivityFirstrunTestRule(showFirstRun = false)
+-
+-    @Before
+-    fun setUp() {
+-        featureSettingsHelper.setCfrForTrackingProtectionEnabled(false)
+-        featureSettingsHelper.setSearchWidgetDialogEnabled(false)
+-    }
+-
+-    @After
+-    fun tearDown() {
+-        featureSettingsHelper.resetAllFeatureFlags()
+-    }
+-
+-    @SmokeTest
+-    @Test
+-    fun blockMalwarePageTest() {
+-        val malwareURl = "http://itisatrap.org/firefox/its-an-attack.html"
+-
+-        searchScreen {}
+-            .loadPage(malwareURl) {
+-                verifyPageContent(malwareWarning)
+-                verifyPageContent(tryAgainButton)
+-            }
+-    }
+-
+-    @SmokeTest
+-    @Test
+-    fun blockPhishingPageTest() {
+-        val phishingURl = "http://itisatrap.org/firefox/its-a-trap.html"
+-
+-        searchScreen {}
+-            .loadPage(phishingURl) {
+-                verifyPageContent(phishingWarning)
+-                verifyPageContent(tryAgainButton)
+-            }
+-    }
+-
+-    @SmokeTest
+-    @Test
+-    fun blockUnwantedSoftwarePageTest() {
+-        val unwantedURl = "http://itisatrap.org/firefox/unwanted.html"
+-
+-        searchScreen {}
+-            .loadPage(unwantedURl) {
+-                verifyPageContent(unwantedSoftwareWarning)
+-                verifyPageContent(tryAgainButton)
+-            }
+-    }
+-
+-    @SmokeTest
+-    @Test
+-    fun blockHarmfulPageTest() {
+-        val harmfulURl = "https://www.itisatrap.org/firefox/harmful.html"
+-
+-        searchScreen {}
+-            .loadPage(harmfulURl) {
+-                verifyPageContent(harmfulSiteWarning)
+-                verifyPageContent(tryAgainButton)
+-            }
+-    }
+-
+-    @SmokeTest
+-    @Test
+-    fun unblockSafeBrowsingTest() {
+-        val malwareURl = "http://itisatrap.org/firefox/its-an-attack.html"
+-
+-        homeScreen {}
+-            .openMainMenu {}
+-            .openSettings {}
+-            .openPrivacySettingsMenu {
+-                switchSafeBrowsingToggle()
+-                exitToTop()
+-            }
+-        searchScreen {}
+-            .loadPage(malwareURl) {
+-                verifyPageContent("It’s an Attack!")
+-            }
+-    }
+-
+-    @SmokeTest
+-    @Test
+-    fun verifyPageSecurityIconAndInfo() {
+-        val safePageUrl = "https://mozilla-mobile.github.io/testapp/"
+-        val insecurePageUrl = "http://itisatrap.org/firefox/its-a-trap.html"
+-
+-        searchScreen {}
+-            .loadPage(safePageUrl) {
+-                verifyPageContent("Lets test!")
+-                verifySiteTrackingProtectionIconShown()
+-            }
+-            .openSiteSecurityInfoSheet {
+-                verifySiteConnectionInfoIsSecure(true)
+-            }
+-            .closeSecurityInfoSheet {}
+-            .clearBrowsingData {}
+-        searchScreen {}
+-            .loadPage(insecurePageUrl) {
+-                verifyPageURL(insecurePageUrl)
+-                verifySiteInfoIndicatorShown()
+-            }
+-            .openSiteSecurityInfoSheet {
+-                verifySiteConnectionInfoIsSecure(false)
+-            }
+-            .closeSecurityInfoSheet {}
+-    }
+-}
+diff --git a/app/src/androidTest/java/org/mozilla/focus/activity/robots/SettingsPrivacyMenuRobot.kt b/app/src/androidTest/java/org/mozilla/focus/activity/robots/SettingsPrivacyMenuRobot.kt
+index 41c1fbdc75..4bb73d062a 100644
+--- a/app/src/androidTest/java/org/mozilla/focus/activity/robots/SettingsPrivacyMenuRobot.kt
++++ b/app/src/androidTest/java/org/mozilla/focus/activity/robots/SettingsPrivacyMenuRobot.kt
+@@ -55,8 +55,6 @@ class SettingsPrivacyMenuRobot {
+         assertUseFingerprintSwitchState()
+         stealthModeSwitch().check(matches(isDisplayed()))
+         assertStealthModeSwitchState()
+-        safeBrowsingSwitch().check(matches(isDisplayed()))
+-        assertSafeBrowsingSwitchState()
+         httpsOnlyModeSwitch().check(matches(isDisplayed()))
+         assertHttpsOnlyModeSwitchState()
+     }
+@@ -210,8 +208,6 @@ class SettingsPrivacyMenuRobot {
+ 
+     fun clickBlockThirdPartyCookiesOnly() = block3rdPartyCookiesOnlyOption.click()
+ 
+-    fun switchSafeBrowsingToggle(): ViewInteraction = safeBrowsingSwitch().perform(click())
+-
+     fun verifyExceptionsListDisabled() {
+         exceptionsList().check(matches(Matchers.not(isEnabled())))
+     }
+@@ -547,42 +543,6 @@ private fun assertStealthModeSwitchState(enabled: Boolean = false) {
+     }
+ }
+ 
+-private fun safeBrowsingSwitch(): ViewInteraction {
+-    val safeBrowsingSwitchText =
+-        mDevice.findObject(UiSelector().text(getStringResource(R.string.preference_safe_browsing_summary)))
+-    privacySettingsList.scrollToEnd(3)
+-    privacySettingsList.scrollIntoView(safeBrowsingSwitchText)
+-    return onView(withText(getStringResource(R.string.preference_safe_browsing_summary)))
+-}
+-
+-private fun assertSafeBrowsingSwitchState(enabled: Boolean = true) {
+-    if (enabled) {
+-        safeBrowsingSwitch()
+-            .check(
+-                matches(
+-                    hasCousin(
+-                        allOf(
+-                            withId(android.R.id.switch_widget),
+-                            isChecked(),
+-                        )
+-                    )
+-                )
+-            )
+-    } else {
+-        safeBrowsingSwitch()
+-            .check(
+-                matches(
+-                    hasCousin(
+-                        allOf(
+-                            withId(android.R.id.switch_widget),
+-                            isNotChecked(),
+-                        )
+-                    )
+-                )
+-            )
+-    }
+-}
+-
+ private fun httpsOnlyModeSwitch(): ViewInteraction {
+     val httpsOnlyModeSwitchText = getStringResource(R.string.preference_https_only_title)
+     privacySettingsList.scrollTextIntoView(httpsOnlyModeSwitchText)
+diff --git a/app/src/main/java/org/mozilla/focus/engine/EngineSharedPreferencesListener.kt b/app/src/main/java/org/mozilla/focus/engine/EngineSharedPreferencesListener.kt
+index e08430449d..3897fcf80a 100644
+--- a/app/src/main/java/org/mozilla/focus/engine/EngineSharedPreferencesListener.kt
++++ b/app/src/main/java/org/mozilla/focus/engine/EngineSharedPreferencesListener.kt
+@@ -19,8 +19,6 @@ class EngineSharedPreferencesListener(private val context: Context) : Preference
+             context.getString(R.string.pref_key_performance_enable_cookies) ->
+                 updateTrackingProtectionPolicy(newCookieValue = newValue as String)
+ 
+-            context.getString(R.string.pref_key_safe_browsing) -> updateSafeBrowsingPolicy(newValue as Boolean)
+-
+             context.getString(R.string.pref_key_performance_block_javascript) ->
+                 updateJavaScriptSetting(newValue as Boolean)
+ 
+@@ -55,11 +53,6 @@ class EngineSharedPreferencesListener(private val context: Context) : Preference
+         components.sessionUseCases.reload()
+     }
+ 
+-    private fun updateSafeBrowsingPolicy(newValue: Boolean) {
+-        EngineProvider.setupSafeBrowsing(context.components.engine, newValue)
+-        context.components.sessionUseCases.reload()
+-    }
+-
+     private fun updateJavaScriptSetting(newValue: Boolean) {
+         val components = context.components
+ 
+diff --git a/app/src/main/java/org/mozilla/focus/settings/SafeBrowsingSwitchPreference.kt b/app/src/main/java/org/mozilla/focus/settings/SafeBrowsingSwitchPreference.kt
+deleted file mode 100644
+index a756023d52..e69de29bb2
+--- a/app/src/main/java/org/mozilla/focus/settings/SafeBrowsingSwitchPreference.kt
++++ /dev/null
+@@ -1,17 +0,0 @@
+-/* This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+-
+-package org.mozilla.focus.settings
+-
+-import android.content.Context
+-import android.util.AttributeSet
+-import org.mozilla.focus.utils.SupportUtils
+-
+-/** Switch preference for enabling/disabling autocompletion for custom domains entered by the user. */
+-class SafeBrowsingSwitchPreference(
+-    context: Context,
+-    attrs: AttributeSet?,
+-) : LearnMoreSwitchPreference(context, attrs) {
+-    override fun getLearnMoreUrl() = SupportUtils.getSafeBrowsingURL()
+-}
+diff --git a/app/src/main/java/org/mozilla/focus/settings/privacy/PrivacySecuritySettingsFragment.kt b/app/src/main/java/org/mozilla/focus/settings/privacy/PrivacySecuritySettingsFragment.kt
+index f84c4d8fc7..8cc38f60e1 100644
+--- a/app/src/main/java/org/mozilla/focus/settings/privacy/PrivacySecuritySettingsFragment.kt
++++ b/app/src/main/java/org/mozilla/focus/settings/privacy/PrivacySecuritySettingsFragment.kt
+@@ -55,15 +55,12 @@ class PrivacySecuritySettingsFragment : BaseSettingsFragment(), SharedPreference
+             findPreference(getString(R.string.pref_key_performance_enable_cookies)) as? CookiesPreference
+         cookiesPreference?.updateSummary()
+ 
+-        val safeBrowsingSwitchPreference =
+-            findPreference(getString(R.string.pref_key_safe_browsing)) as? SwitchPreference
+         val javaScriptPreference =
+             findPreference(getString(R.string.pref_key_performance_block_javascript)) as? SwitchPreference
+         val webFontsPreference =
+             findPreference(getString(R.string.pref_key_performance_block_webfonts)) as? SwitchPreference
+ 
+         cookiesPreference?.onPreferenceChangeListener = engineSharedPreferencesListener
+-        safeBrowsingSwitchPreference?.onPreferenceChangeListener = engineSharedPreferencesListener
+         javaScriptPreference?.onPreferenceChangeListener = engineSharedPreferencesListener
+         webFontsPreference?.onPreferenceChangeListener = engineSharedPreferencesListener
+     }
+@@ -98,10 +95,6 @@ class PrivacySecuritySettingsFragment : BaseSettingsFragment(), SharedPreference
+                 PrivacySettings.telemetrySettingChanged.record(
+                     PrivacySettings.TelemetrySettingChangedExtra(newValue as? Boolean)
+                 )
+-            getString(R.string.pref_key_safe_browsing) ->
+-                PrivacySettings.safeBrowsingSettingChanged.record(
+-                    PrivacySettings.SafeBrowsingSettingChangedExtra(newValue as? Boolean)
+-                )
+             getString(R.string.pref_key_biometric) ->
+                 PrivacySettings.unlockSettingChanged.record(
+                     PrivacySettings.UnlockSettingChangedExtra(newValue as? Boolean)
+diff --git a/app/src/main/java/org/mozilla/focus/utils/Settings.kt b/app/src/main/java/org/mozilla/focus/utils/Settings.kt
+index 59592a6b7f..7631b938e4 100644
+--- a/app/src/main/java/org/mozilla/focus/utils/Settings.kt
++++ b/app/src/main/java/org/mozilla/focus/utils/Settings.kt
+@@ -176,12 +176,12 @@ class Settings(private val context: Context) : PreferencesHolder {
+             true,
+         )
+ 
+-    /** Determines whether safe browsing should be enabled based on the user's preference. Defaults to true. */
+-    fun shouldUseSafeBrowsing() =
+-        preferences.getBoolean(
+-            getPreferenceKey(R.string.pref_key_safe_browsing),
+-            true,
+-        )
++    /**
++     * Blackdrift: always false. The build has no Google Safe Browsing API key, so Gecko downloads no
++     * malware or phishing lists and the old switch protected nothing. A value stored by an earlier
++     * build ("pref_safe_browsing", true by default) is ignored.
++     */
++    fun shouldUseSafeBrowsing() = false
+ 
+     /** Checks if analytic trackers should be blocked. Defaults to true. */
+     fun shouldBlockAnalyticTrackers() =
+diff --git a/app/src/main/res/values/preference_keys.xml b/app/src/main/res/values/preference_keys.xml
+index f3c01ddef6..29db441a32 100644
+--- a/app/src/main/res/values/preference_keys.xml
++++ b/app/src/main/res/values/preference_keys.xml
+@@ -34,8 +34,6 @@
+ 
+     <string name="pref_key_secure" translatable="false"><xliff:g id="preference_key">pref_secure</xliff:g></string>
+ 
+-    <string name="pref_key_safe_browsing" translatable="false"><xliff:g id="preference_key">pref_safe_browsing</xliff:g></string>
+-
+     <string name="pref_key_https_only" translatable="false"><xliff:g id="preference_key">pref_https_only</xliff:g></string>
+ 
+     <string name="pref_key_biometric" translatable="false"><xliff:g id="preference_key">pref_biometric</xliff:g></string>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index 1f400b3fd8..7ab643c3d2 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -601,10 +601,6 @@
+     <!-- Button to dismiss the message displayed  when using a search engine that doesn't provide suggestions-->
+     <string name="dismiss_no_suggestions_prompt_button">Dismiss</string>
+ 
+-    <!-- Preference title for safe browsing which when enabled, blocks dangerous or deceptive webpages that may include phishing or malware -->
+-    <string name="preference_safe_browsing_title">Block potentially dangerous and deceptive sites</string>
+-    <!-- Preference summary for safe browsing which when enabled, blocks dangerous or deceptive webpages that may include phishing or malware -->
+-    <string name="preference_safe_browsing_summary">Block reported deceptive and attack sites, malware sites, and unwanted software sites.</string>
+     <!-- Title of the preference to enable "HTTPS-Only" mode -->
+     <string name="preference_https_only_title">HTTPS-Only Mode</string>
+     <!-- Description of the preference to enable "HTTPS-Only" mode. -->
+diff --git a/app/src/main/res/xml/privacy_security_settings.xml b/app/src/main/res/xml/privacy_security_settings.xml
+index 010a711b08..f1579cf062 100644
+--- a/app/src/main/res/xml/privacy_security_settings.xml
++++ b/app/src/main/res/xml/privacy_security_settings.xml
+@@ -121,12 +121,6 @@
+         android:key="@string/pref_key_category_security"
+         android:layout="@layout/preference_section_header_layout"
+         android:title="@string/preference_category_security">
+-        <org.mozilla.focus.settings.SafeBrowsingSwitchPreference
+-            android:defaultValue="true"
+-            android:key="@string/pref_key_safe_browsing"
+-            android:layout="@layout/focus_preference_no_icon"
+-            android:summary="@string/preference_safe_browsing_summary"
+-            android:title="@string/preference_safe_browsing_title" />
+         <org.mozilla.focus.settings.HttpsOnlyModePreference
+             android:defaultValue="true"
+             android:key="@string/pref_key_https_only"
